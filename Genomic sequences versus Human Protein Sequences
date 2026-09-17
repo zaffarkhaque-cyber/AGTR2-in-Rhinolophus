@@ -1,0 +1,40 @@
+markdown# Genomic Targeting and Sequence Extraction Workflow
+
+This repository contains the pipeline and scripts used to screen target protein orthologs against the *Rhinolophus hipposideros* (Lesser horseshoe bat) genome and extract corresponding chromosomal coordinates.
+
+## Prerequisites
+* **BLAST+ Command Line Applications** (v2.17.0+ recommended)
+* **Python 3.x** with `pandas` library installed:
+  ```bash
+  pip install pandas
+  ```
+
+## Workflow Execution Steps
+
+### 1. Preparing the Genomic Reference Database
+The raw genomic DNA sequence (`.fna` format) was extracted from the NCBI datasets archive. A local translated nucleotide BLAST database was initialized using the following command:
+```bash
+makeblastdb -in bat_genome.fna -dbtype nucl -out bat_genome_db
+```
+
+### 2. Running Cross-Species TBLASTN Alignment
+Using custom-curated amino acid sequences for target proteins (`clean_queries.fasta`), we searched the translated bat genome database. We slightly relaxed the word size parameter (`-word_size 3`) to account for evolutionary drift across mammalian species, outputting standard tab-separated formatting (`-outfmt 6`):
+```bash
+tblastn -query clean_queries.fasta -db bat_genome_db -word_size 3 -outfmt 6 -out final_blast_results.txt
+```
+
+### 3. Automated Chromosomal Coordinate Boundary Retrieval
+Because eukaryotic genes are split by introns, multiple high-scoring segment pairs (HSPs) map to individual exons. We deployed a custom Python script (`fetch_sequences.py`) to systematically parse `final_blast_results.txt`. 
+
+The script performs the following tasks:
+1. Filters hits dynamically to keep only highly confident alignments (E-value < 10⁻⁵).
+2. Standardizes strand coordinates to absolute numerical order regardless of forward/reverse orientation.
+3. Groups flanking hits by Gene and Chromosome/Scaffold ID to define the total macro-boundary region (minimum starting coordinate to maximum ending coordinate).
+4. Stream-parses `bat_genome.fna` to carve out and generate a fully structured FASTA file of the targeted loci.
+
+Execute the extraction script using:
+```bash
+python fetch_sequences.py
+```
+
+The final extracted structural sequences are saved cleanly in `extracted_bat_genes.fasta`.
