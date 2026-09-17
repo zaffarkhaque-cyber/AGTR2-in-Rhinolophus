@@ -1,0 +1,118 @@
+python#!/usr/bin/env python3
+"""
+Automated Cross-Species Genomic Data Mining and Ortholog Screening Pipeline
+Author: [Your Name / Shazi]
+Description: Programmatic script connecting to NCBI Entrez APIs via Biopython. 
+             Executes strict compound Boolean queries across 75 target loci 
+             and 37 species, maintaining server safety intervals.
+"""
+
+import os
+import time
+import csv
+from Bio import Entrez
+
+# ==============================================================================
+# 1. PIPELINE INITIALIZATION & ACCOUNT CONFIGURATION
+# ==============================================================================
+# Explicitly replace with your actual email to register your API queries with NCBI
+Entrez.email = "your.email@example.com"  
+Entrez.tool = "CrossSpeciesOrthologMiner"
+
+OUTPUT_FILE = "cross_species_master_dataset.csv"
+
+# ==============================================================================
+# 2. TARGET TAXA ARRAY (37 SPECIES)
+# ==============================================================================
+SPECIES_LIST = [
+    "Megaderma spasma", "Cynopterus sphinx", "Plecotus auritus", "Eptesicus nilssonii",
+    "Rhinolophus ferrumequinum", "Rhinolophus hipposideros", "Rhinolophus sinicus",
+    "Rhinolophus affinis", "Rhinolophus rex", "Rhinolophus lepidus", "Aselliscus stoliczkanus",
+    "Molossus molossus", "Pipistrellus kuhlii", "Phyllostomus discolor", "Myotis myotis",
+    "Hipposideros larvatus", "Leptonychotes weddellii", "Sorex araneus", "Sus scrofa",
+    "Manis javanica", "Camelus dromedarius", "Peromyscus maniculatus", "Anser indicus",
+    "Homo sapiens", "Equus caballus", "Pan troglodytes", "Branta canadensis",
+    "Erinaceus europaeus", "Trichoglossus moluccanus", "Falco peregrinus", "Falco cherrug",
+    "Taeniopygia guttata", "Gymnogyps californianus", "Lichenostomus cassidix",
+    "Archilochus colubris", "Calypte anna", "Heliangelus exortis"
+]
+
+# ==============================================================================
+# 3. GENE ALIAS DIRECTORY (75 UNIQUE EXPERIMENT HEADERS)
+# ==============================================================================
+GENE_DICT = {
+    'F3': ['F3'], 'SERPINE1': ['SERPINE1'], 'TGFB1': ['TGFB1'], 'MMP2': ['MMP2'], 
+    'MMP9': ['MMP9'], 'LPAR4': ['LPAR4'], 'FFAR4': ['FFAR4', 'GPR120'], 
+    'SUCNR1': ['SUCNR1', 'GPR91'], 'CCR2': ['CCR2'], 'CXCR3': ['CXCR3'], 
+    'PTGER2': ['PTGER2'], 'APLNR': ['APLNR'], 'PPARG': ['PPARG'], 'LOX': ['LOX'], 
+    'PDGFRB': ['PDGFRB'], 'COL1A1': ['COL1A1'], 'COL3A1': ['COL3A1'], 'COL6A3': ['COL6A3'], 
+    'SLC25A5': ['SLC25A5', 'ANT2'], 'VEGFA': ['VEGFA'], 'PNPLA3': ['PNPLA3'], 
+    'MBOAT7': ['MBOAT7'], 'TM6SF2': ['TM6SF2'], 'PPARA': ['PPARA'], 'TIMP1': ['TIMP1'], 
+    'FADS1': ['FADS1'], 'FADS2': ['FADS2'], 'PPARGC1A': ['PPARGC1A', 'PGC1A'], 
+    'PSD3': ['PSD3'], 'SLC2A1': ['SLC2A1', 'GLUT1'], 'HK2': ['HK2'], 'PFKFB3': ['PFKFB3'], 
+    'PFKM': ['PFKM'], 'PKM2': ['PKM2', 'PKM'], 'PKLR': ['PKLR'], 'PDK1': ['PDK1'], 
+    'LDHA': ['LDHA'], 'PCK1': ['PCK1'], 'HIF1A': ['HIF1A'], 'MTOR': ['MTOR'], 
+    'AKT1': ['AKT1'], 'AKT2': ['AKT2'], 'SOX9': ['SOX9'], 'KCNK3': ['KCNK3'], 
+    'MTMR4': ['MTMR4'], 'TMOD3': ['TMOD3'], 'TRPV4': ['TRPV4'], 'FOXF1': ['FOXF1'], 
+    'S1PR1': ['S1PR1'], 'LPAR1': ['LPAR1'], 'SPHK1': ['SPHK1'], 'SREBF1': ['SREBF1', 'SREBP1C'], 
+    'MLXIPL': ['MLXIPL', 'ChREBP'], 'GPNMB': ['GPNMB'], 'BNIP3L': ['BNIP3L'], 
+    'METTL8': ['METTL8'], 'FABP3': ['FABP3'], 'FABP7': ['FABP7'], 'PLIN2': ['PLIN2', 'ADRP'], 
+    'HILPDA': ['HILPDA', 'HIG2'], 'ANGPTL4': ['ANGPTL4'], 'GLS1': ['GLS1'], 'SIAH2': ['SIAH2'], 
+    'CHRDL1': ['CHRDL1'], 'KDM5C': ['KDM5C'], 'KDM6A': ['KDM6A'], 'TLR7': ['TLR7'], 
+    'TLR8': ['TLR8'], 'ACE': ['ACE'], 'AGT': ['AGT'], 'REN': ['REN'], 'AGTR1': ['AGTR1'], 
+    'AGTR2': ['AGTR2'], 'CYP11B2': ['CYP11B2'], 'ACE2': ['ACE2']
+}
+
+def fetch_ncbi_hit_count(species, gene_aliases):
+    """Constructs clean Boolean search queries and probes NCBI counts."""
+    query_parts = [f'("{species}"[Organism] AND "{alias}"[Gene Symbol])' for alias in gene_aliases]
+    boolean_query = " OR ".join(query_parts)
+    
+    total_hits = 0
+    # Probe both the nucleotide and protein repositories
+    for database in ["nuccore", "protein"]:
+        try:
+            handle = Entrez.esearch(db=database, term=boolean_query, rettype="count")
+            record = Entrez.read(handle)
+            handle.close()
+            total_hits += int(record["Count"])
+            time.sleep(0.45)  # Mandatory server safety interval
+        except Exception:
+            return "ERROR"
+            
+    return total_hits
+
+def main():
+    print("================================================================")
+    print(f"[START] Launching cross-species automated screen for {len(SPECIES_LIST)} taxa...")
+    print("================================================================\n")
+    
+    # Establish headers with unique names to match your spreadsheet file exactly
+    headers = ["Species"] + list(GENE_DICT.keys()) + ["Species_End_Index"]
+    
+    with open(OUTPUT_FILE, "w", newline="", encoding="utf-8") as csvfile:
+        writer = csv.writer(csvfile)
+        writer.writerow(headers)
+        
+        for species in SPECIES_LIST:
+            print(f"Polling database counts for: {species}...")
+            row_data = [species]
+            
+            for gene, aliases in GENE_DICT.items():
+                count = fetch_ncbi_hit_count(species, aliases)
+                
+                if count == "ERROR":
+                    row_data.append("ERROR")
+                elif count > 0:
+                    row_data.append(f"+ve ({count})")
+                else:
+                    row_data.append("-ve (0)")
+                    
+            row_data.append(species)  # Fills trailing end index column safely
+            writer.writerow(row_data)
+            print(f" -> Row entries successfully mapped for {species}.\n")
+            
+    print(f"\n[COMPLETE] Multi-locus matrix integrated into '{OUTPUT_FILE}'.")
+
+if __name__ == "__main__":
+    main()
