@@ -1,0 +1,55 @@
+bash#!/usr/bin/env bash
+# ==============================================================================
+# Script Name: run_ferrumequinum_fossil_pipeline.sh
+# Project: Localized Rhinolophus ferrumequinum AGTR2 Pseudogene Fossil Analysis
+# Platform: Ubuntu / Linux Terminal Environment
+# ==============================================================================
+
+set -e # Exit immediately if any individual task hits a command failure
+
+echo "================================================================"
+echo "  STARTING LOCALIZED R. FERRUMEQUINUM AGTR2 FOSSIL EXTRACTION   "
+echo "================================================================"
+
+# Step 1: Confirm system requirements are present
+echo "[1/4] Verifying native environment dependencies..."
+for tool in makeblastdb tblastn; do
+    if ! command -v $tool &> /dev/null; then
+        echo "Error: Required executable '$tool' not detected on your path."
+        echo "Install via terminal: sudo apt-get install ncbi-blast+"
+        exit 1
+    fi
+done
+
+# Step 2: Establish the query bait reference file locally
+echo "[2/4] Writing reference protein query bait file..."
+cat << 'EOF' > agtr2_bait.fasta
+>AGTR2_Exon_Bait
+MKDNFSFAATSRNITSSLPFDNLNATGTNESAFNCSIKDWDDGEC
+EOF
+
+# Step 3: Format the local intergenic sequence file into a BLAST database index
+if [ ! -f "ferrumequinum_intergenic.fasta" ]; then
+    echo "Error: Local sequence file 'ferrumequinum_intergenic.fasta' not found."
+    exit 1
+fi
+echo "[3/4] Indexing bat intergenic chromosomal database..."
+makeblastdb -in ferrumequinum_intergenic.fasta -dbtype nucl -out ferrumequinum_db > /dev/null
+
+# Step 4: Run the tblastn alignment query with permissive settings
+echo "[4/4] Processing heuristic 6-frame translated search (E-value limit: 10)..."
+tblastn \
+    -query agtr2_bait.fasta \
+    -db ferrumequinum_db \
+    -out ferrumequinum_pseudogene_results.txt \
+    -evalue 10 \
+    -outfmt "6 qseqid sseqid pident length evalue bitscore qstart qend sstart send"
+
+# Print reports directly to terminal
+echo -e "\n================================================================"
+echo "  VERIFIABLE PEER-REVIEW READY RESULTS (ferrumequinum_pseudogene_results.txt)"
+echo "================================================================"
+echo -e "Query_ID\tSubject_ID\t%_Ident\tLen\tE-val\tBit_Scr\tqSt\tqEnd\tsSt\tsEnd"
+print "%s\n" "$(cat ferrumequinum_pseudogene_results.txt)"
+echo "================================================================"
+echo "Pipeline run successful. Local audit file compiled."
