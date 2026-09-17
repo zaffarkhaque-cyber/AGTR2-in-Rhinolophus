@@ -1,0 +1,45 @@
+markdown# Translated Cross-Species Alignment Pipeline for Bat Lung Transcriptomics
+
+An automated Linux/Ubuntu shell pipeline engineered to verify tissue-level expression profiles and map sequence conservation metrics within unannotated transcriptomic datasets. 
+
+## 🧬 Scientific Rationale
+This framework was developed to profile target physiological, metabolic, and cellular signaling networks within the unannotated **Single-Cell RNA-seq lung atlas of the Chinese Horseshoe Bat (*Rhinolophus sinicus*)** (BioProject: `CNP0002166`). 
+
+By performing cross-species translated alignments directly against known mammalian protein target templates, this architecture systematically bypasses potential reference-genome annotation gaps.
+
+## 🛠️ Pipeline Infrastructure
+The core program maps out an automated 4-stage processing workflow inside a native Linux terminal environment:
+1. **cURL Data Streaming**: Taps directly into remote genomic data archives without local storage overhead.
+2. **Dynamic Parallel Decompression**: Leverages multi-threaded `pigz` processing to extract streaming read tracks on the fly.
+3. **Boundary Truncation**: Restricts memory constraints uniformly to a subset of 100,000 sequence rows (25,000 FASTQ reads) per dataset file using system streams.
+4. **Heuristic Six-Frame `blastx` Translation**: Systematically scales input nucleotides across all six open reading frames, executing sequence-space alignments against a target protein database using a `BLOSUM62` substitution matrix at an E-value cutoff constraint of `1e-4`.
+
+## 🎛️ Initial Multi-Locus Evaluation Panel (8 Target Genes)
+* **Expressed (+ve / Validated)**: `AOPEP`, `FBP1`, `FBP2`, `PLS3`, `SLC6A14`, `SLC71A2` (*MFSD14B*), `SSXA1` (*SSX*).
+* **Undetected Genomic Gap (-ve)**: `AGTR2` (Angiotensin II Receptor Type 2).
+
+## 💻 Software Prerequisites & Installation
+This architecture is built for native **Ubuntu / Linux operating systems**. Configure your local terminal dependencies using the following commands:
+
+```bash
+# Update local system packages
+sudo apt-get update
+
+# Install the official NCBI BLAST+ computational suite
+sudo apt-get install ncbi-blast+
+
+# Install parallel compression and stream utilities
+sudo apt-get install curl pigz awk
+```
+
+## 🚀 Replicating Locally
+To execute the complete automated workflow, clone this repository and run the main shell script:
+```bash
+chmod +x run_transcriptomics_pipeline.sh
+./run_transcriptomics_pipeline.sh
+```
+
+---
+
+### 🏛️ Usage Disclaimer
+Computational automation architectures, multi-batch search query logic, and grammatical formatting were optimized utilizing the Google Gemini large language model software platform. All biological parameters, parameter metrics, dataset inputs, and interpretation matrices were verified and executed locally by the authors.
