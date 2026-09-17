@@ -1,0 +1,55 @@
+bash#!/usr/bin/env bash
+# ==============================================================================
+# Script Name: run_corrected_affinis_pipeline.sh
+# Project: Finalized Rhinolophus affinis AGTR2 Pseudogene Fossil Analysis
+# Platform: Ubuntu / Linux Terminal Environment
+# ==============================================================================
+
+set -e # Exit immediately if any individual task hits a command failure
+
+echo "================================================================"
+echo "  STARTING FINALIZED R. AFFINIS AGTR2 FOSSIL EXTRACTION         "
+echo "================================================================"
+
+# Step 1: Confirm system requirements are present
+for tool in makeblastdb tblastn; do
+    if ! command -v $tool &> /dev/null; then
+        echo "Error: Required executable '$tool' not detected on your path."
+        exit 1
+    fi
+done
+
+# Step 2: Establish the reference protein query bait file locally
+cat << 'EOF' > agtr2_bait.fasta
+>AGTR2_Exon_Bait
+MKDNFSFAATSRNITSSLPFDNLNATGTNESAFNCSIKDWDDGEC
+EOF
+
+# Step 3: Format the local intergenic sequence file into a BLAST database index
+if [ ! -f "affinis_corrected.fasta" ]; then
+    echo "Error: Local sequence file 'affinis_corrected.fasta' not found."
+    exit 1
+fi
+echo "[1/2] Indexing 420,829 bp bat intergenic chromosomal database..."
+makeblastdb -in affinis_corrected.fasta -dbtype nucl -out affinis_corrected_db > /dev/null
+
+# Step 4: Run the tblastn alignment query with permissive settings
+echo "[2/2] Processing heuristic 6-frame translated search (E-value limit: 10)..."
+tblastn \
+    -query agtr2_bait.fasta \
+    -db affinis_corrected_db \
+    -out affinis_corrected_results.txt \
+    -evalue 10 \
+    -outfmt "6 qseqid sseqid pident length evalue bitscore qstart qend sstart send"
+
+# Print reports directly to terminal
+echo -e "\n================================================================"
+echo "  VERIFIABLE PEER-REVIEW READY RESULTS (affinis_corrected_results.txt)"
+echo "================================================================"
+echo -e "Query_ID\tSubject_ID\t%_Ident\tLen\tE-val\tBit_Scr\tqSt\tqEnd\tsSt\tsEnd"
+if [ -s "affinis_corrected_results.txt" ]; then
+    cat affinis_corrected_results.txt
+else
+    echo "No hits passed target expectation-value thresholds."
+fi
+echo "================================================================"
