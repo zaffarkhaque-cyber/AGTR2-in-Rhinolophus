@@ -1,0 +1,34 @@
+CODON_TABLE = {
+    'ATA':'I', 'ATC':'I', 'ATT':'I', 'ATG':'M', 'ACA':'T', 'ACC':'T', 'ACG':'T', 'ACT':'T',
+    'AAC':'N', 'AAT':'N', 'AAA':'K', 'AAG':'K', 'AGC':'S', 'AGT':'S', 'AGA':'R', 'AGG':'R',
+    'CTA':'L', 'CTC':'L', 'CTG':'L', 'CTT':'L', 'CCA':'P', 'CCC':'P', 'CCG':'P', 'CCT':'P',
+    'CAC':'H', 'CAT':'H', 'CAA':'Q', 'CAG':'Q', 'CGA':'R', 'CGC':'R', 'CGG':'R', 'CGT':'R',
+    'GTA':'V', 'GTC':'V', 'GTG':'V', 'GTT':'V', 'GCA':'A', 'GCC':'A', 'GCG':'A', 'GCT':'A',
+    'GAC':'D', 'GAT':'D', 'GAA':'E', 'GAG':'E', 'GGA':'G', 'GGC':'G', 'GGG':'G', 'GGT':'G',
+    'TCA':'S', 'TCC':'S', 'TCG':'S', 'TCT':'S', 'TTC':'F', 'TTT':'F', 'TTA':'L', 'TTG':'L',
+    'TAC':'Y', 'TAT':'Y', 'TAA':'*', 'TAG':'*', 'TGC':'C', 'TGT':'C', 'TGA':'*', 'TGG':'W',
+}
+
+def scan_reading_frames(fasta_path):
+    with open(fasta_path, "r") as f:
+        seq = "".join([line.strip().upper() for line in f if not line.startswith(">")])
+    
+    print(f"Analyzing {len(seq):,} bp sequence for translational disablements...")
+    for frame in range(3):
+        pep = "".join([CODON_TABLE.get(seq[i:i+3], 'X') for i in range(frame, len(seq)-2, 3)])
+        print(f"  Frame +{frame+1}: Length={len(pep)}aa | Premature Stop Codons={pep.count('*')}")
+
+def parse_blast_metrics(blast_path):
+    if not os.path.exists(blast_path) or os.stat(blast_path).st_size == 0:
+        print("  No significant or non-significant alignments identified.")
+        return
+    cols = ["qseqid", "sseqid", "pident", "length", "mismatch", "gapopen", "qstart", "qend", "sstart", "send", "evalue", "bitscore"]
+    df = pd.read_csv(blast_path, sep="\t", names=cols)
+    print(f"\nIdentified {len(df)} residual sequence fragments:")
+    print(df[["qseqid", "pident", "length", "evalue", "bitscore"]].to_string(index=False))
+
+if __name__ == "__main__":
+    print("="*60 + "\n EVOLUTIONARY PSEUDOGENE EVALUATION PIPELINE \n" + "="*60)
+    if os.path.exists(INTERGENIC_FILE):
+        scan_reading_frames(INTERGENIC_FILE)
+    parse_blast_metrics(BLAST_OUTPUT)
