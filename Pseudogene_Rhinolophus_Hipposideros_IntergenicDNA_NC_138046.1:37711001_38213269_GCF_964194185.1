@@ -1,0 +1,39 @@
+bash#!/usr/bin/env bash
+# ==============================================================================
+# Script Name: run_hipposideros_fossil_pipeline.sh
+# Project: Localized 19.7Mb Rhinolophus hipposideros Pseudogene Fossil Analysis
+# Platform: Ubuntu / Linux Terminal Environment
+# ==============================================================================
+
+set -e
+
+echo "================================================================"
+echo "  STARTING LOCALIZED R. HIPPOSIDEROS AGTR2 FOSSIL EXTRACTION    "
+echo "================================================================"
+
+if [ ! -f "hipposideros_intergenic.fasta" ]; then
+    echo "Error: Local sequence file 'hipposideros_intergenic.fasta' not found."
+    exit 1
+fi
+
+echo "[1/2] Indexing 19.7Mb bat intergenic chromosomal database..."
+makeblastdb -in hipposideros_intergenic.fasta -dbtype nucl -out hipposideros_db > /dev/null
+
+echo "[2/2] Processing 6-frame translated search (E-value limit: 10)..."
+tblastn \
+    -query agtr2_bait.fasta \
+    -db hipposideros_db \
+    -out hipposideros_pseudogene_results.txt \
+    -evalue 10 \
+    -outfmt "6 qseqid sseqid pident length evalue bitscore qstart qend sstart send"
+
+echo -e "\n================================================================"
+echo "  VERIFIABLE PEER-REVIEW READY RESULTS (hipposideros_pseudogene_results.txt)"
+echo "================================================================"
+echo -e "Query_ID\tSubject_ID\t%_Ident\tLen\tE-val\tBit_Scr\tqSt\tqEnd\tsSt\tsEnd"
+if [ -s "hipposideros_pseudogene_results.txt" ]; then
+    cat hipposideros_pseudogene_results.txt
+else
+    echo "No hits passed target expectation-value thresholds."
+fi
+echo "================================================================"
