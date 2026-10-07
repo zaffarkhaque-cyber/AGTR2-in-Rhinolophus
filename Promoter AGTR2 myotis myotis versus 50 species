@@ -118,11 +118,11 @@ for file_path in "$SOURCE_DIR"/*; do
         top_alignment=$(head -n 1 "$STRINGENT_OUT")
         max_length=$(echo "$top_alignment" | awk '{print $1}')
         top_evalue=$(echo "$top_alignment" | awk '{print $2}')
-        echo "   🟢 Tier 1 Match Confirmed: ${max_length} bp resolved (E-value: ${top_evalue})."
+        echo "$species_token | Relaxed (Tier 2) | ${max_length} bp | $top_evalue | Promoter Collapsed / Remnants Only" >> "$SUMMARY_LOG"
         echo "$species_token | Stringent (Tier 1) | ${max_length} bp | $top_evalue | Conserved Ortholog Retained" >> "$SUMMARY_LOG"
     else
         # 4. Tier 2: Relaxed Forensic Pass (Motif Fragment Resolution Fallback)
-        echo "   ⚠️  Tier 1 Null. Dropping down to Tier 2 Relaxed Analysis..."
+        echo "$species_token | Relaxed (Tier 2) | ${max_len} bp | $top_evalue | Promoter Collapsed / Remnants Only" >> "$SUMMARY_LOG"
         RELAXED_OUT="${SCRATCH_ROOT}/${species_token}_relaxed.txt"
         blastn \
             -query "$QUERY_FA" \
