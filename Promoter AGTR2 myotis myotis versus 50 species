@@ -1,0 +1,157 @@
+bash
+#!/usr/bin/env bash
+# ==============================================================================
+# Script:      screen_promoter_two_tier.sh
+# Description: Two-Tiered High-Density Fallback Screening Pipeline for Cross-
+#              Species Comparative Cis-Regulatory Element Analysis.
+# Author:      S. Haque et al.
+# License:     MIT License
+# GitHub:      https://github.com
+# ==============================================================================
+
+set -eo pipefail
+
+# --- Usage Validation ---
+usage() {
+    echo "Usage: $0 -g <genome_directory> -q <query_promoter.fa> -o <output_summary.txt>"
+    echo "  -g : Directory containing genome files (.zip from NCBI, .fa, .fna, .fa.gz)"
+    echo "  -q : Path to the single query promoter FASTA file"
+    echo "  -o : Output path destination for the generated text results ledger"
+    exit 1
+}
+
+while getopts "g:q:o:h" opt; do
+    case "$opt" in
+        g) SOURCE_DIR="$OPTARG" ;;
+        q) QUERY_FA="$OPTARG" ;;
+        o) SUMMARY_LOG="$OPTARG" ;;
+        h|*) usage ;;
+    esac
+done
+
+if [ -z "$SOURCE_DIR" ] || [ -z "$QUERY_FA" ] || [ -z "$SUMMARY_LOG" ]; then
+    usage
+fi
+
+# --- Environment & Dependency Checks ---
+echo "Checking pipeline software dependencies..."
+for cmd in makeblastdb blastn unzip gunzip nproc; do
+    if ! command -v "$cmd" &> /dev/null; then
+        echo "❌ Critical Error: Dependency '$cmd' is missing from host environment paths." >&2
+        exit 1
+    fi
+done
+
+# --- Resource Allocation (Multi-Thread Acceleration Metrics) ---
+AVAILABLE_CORES=$(nproc)
+if [ "$AVAILABLE_CORES" -gt 2 ]; then
+    THREADS=$((AVAILABLE_CORES - 2))
+else
+    THREADS=1
+fi
+
+# --- Workspace Sandbox Scaffolding ---
+SCRATCH_ROOT="/tmp/promoter_screening_scratch_$$"
+mkdir -p "$SCRATCH_ROOT"
+trap 'rm -rf "$SCRATCH_ROOT"' EXIT
+
+echo "=========================================================================="
+echo "LAUNCHING HIGH-DENSITY TWO-TIERED TARGETED SEQUENCE SCREENING ENGINE      "
+echo "Active Cores Detected: $AVAILABLE_CORES  | Parallel Processing Allocation: $THREADS Cores"
+echo "=========================================================================="
+
+# Initialize text ledger headers
+echo "Species/File | Tier Executed | Max Alignment Length | Top E-value | Status" > "$SUMMARY_LOG"
+echo "------------------------------------------------------------------------" >> "$SUMMARY_LOG"
+
+# --- Main Iterative Processing Loop ---
+for file_path in "$SOURCE_DIR"/*; do
+    [ -f "$file_path" ] || continue
+
+    raw_filename=$(basename "$file_path")
+    # Normalize species name strings for publication output matrices
+    species_token=$(echo "$raw_filename" | sed 's/_ncbi_dataset//g' | sed 's/\.zip//g' | sed 's/\.fna//g' | sed 's/\.fa//g' | sed 's/\.fasta//g' | sed 's/ (.*)//g' | tr ' ' '_')
+
+    echo "Processing target dataset: $species_token..."
+    WORKING_FA=""
+    TEMP_EXTRACT="${SCRATCH_ROOT}/${species_token}_extracted"
+
+    # 1. On-the-fly Unpacking / Data Streaming Decompression
+    if [[ "$raw_filename" == *.zip ]]; then
+        mkdir -p "$TEMP_EXTRACT"
+        unzip -o "$file_path" -d "$TEMP_EXTRACT" &>/dev/null || true
+        # Identify genomic sequence stream, prioritizing RefSeq if duplicate records exist
+        WORKING_FA=$(find "$TEMP_EXTRACT" -type f -name "*_genomic.fna" | sort -r | head -n 1)
+        if [ -z "$WORKING_FA" ]; then
+            WORKING_FA=$(find "$TEMP_EXTRACT" -type f \( -name "*.fna" -o -name "*.fa" -o -name "*.fasta" \) | head -n 1)
+        fi
+    elif [[ "$raw_filename" == *.gz ]]; then
+        WORKING_FA="${SCRATCH_ROOT}/${species_token}_temp.fa"
+        gunzip -c "$file_path" > "$WORKING_FA"
+    else
+        WORKING_FA="$file_path"
+    fi
+
+    if [ -z "$WORKING_FA" ] || [ ! -f "$WORKING_FA" ]; then
+        echo "   ⚠️ Skip: No valid sequence coordinates resolved inside $raw_filename"
+        rm -rf "$TEMP_EXTRACT"
+        continue
+    fi
+
+    # 2. Local Database Compiling & Hashing
+    DB_PREFIX="${SCRATCH_ROOT}/${species_token}_db"
+    makeblastdb -in "$WORKING_FA" -dbtype nucl -out "$DB_PREFIX" -hash_index -logfile /dev/null
+
+    # 3. Tier 1: Stringent Pass (Long-Sequence Macro-Homology Resolution)
+    STRINGENT_OUT="${SCRATCH_ROOT}/${species_token}_stringent.txt"
+    blastn \
+        -query "$QUERY_FA" \
+        -db "$DB_PREFIX" \
+        -out "$STRINGENT_OUT" \
+        -task blastn \
+        -word_size 11 \
+        -evalue 1e-5 \
+        -num_threads "$THREADS" \
+        -outfmt "6 length evalue"
+
+    if [ -s "$STRINGENT_OUT" ]; then
+        top_alignment=$(head -n 1 "$STRINGENT_OUT")
+        max_length=$(echo "$top_alignment" | awk '{print $1}')
+        top_evalue=$(echo "$top_alignment" | awk '{print $2}')
+        echo "   🟢 Tier 1 Match Confirmed: ${max_length} bp resolved (E-value: ${top_evalue})."
+        echo "$species_token | Stringent (Tier 1) | ${max_length} bp | $top_evalue | Conserved Ortholog Retained" >> "$SUMMARY_LOG"
+    else
+        # 4. Tier 2: Relaxed Forensic Pass (Motif Fragment Resolution Fallback)
+        echo "   ⚠️  Tier 1 Null. Dropping down to Tier 2 Relaxed Analysis..."
+        RELAXED_OUT="${SCRATCH_ROOT}/${species_token}_relaxed.txt"
+        blastn \
+            -query "$QUERY_FA" \
+            -db "$DB_PREFIX" \
+            -out "$RELAXED_OUT" \
+            -task blastn-short \
+            -word_size 7 \
+            -evalue 10.0 \
+            -num_threads "$THREADS" \
+            -outfmt "6 length evalue"
+
+        if [ -s "$RELAXED_OUT" ]; then
+            top_alignment=$(head -n 1 "$RELAXED_OUT")
+            max_length=$(echo "$top_alignment" | awk '{print $1}')
+            top_evalue=$(echo "$top_alignment" | awk '{print $2}')
+            echo "   🔴 Tier 2 Fragment Recovered: ${max_length} bp resolved (E-value: ${top_evalue})."
+            echo "$species_token | Relaxed (Tier 2) | ${max_len} bp | $top_evalue | Promoter Collapsed / Remnants Only" >> "$SUMMARY_LOG"
+        else
+            echo "   ❌ Zero Coordinate Overlap. True sequence deletion confirmed."
+            echo "$species_token | Relaxed (Tier 2) | 0 bp | N/A | Complete Sequence Deletion" >> "$SUMMARY_LOG"
+        fi
+    fi
+
+    # 5. Volatile Scratch Drive Flushing (Low-Disk Memory Protection Optimization)
+    rm -rf "${DB_PREFIX}".n* "$TEMP_EXTRACT"
+    if [[ "$raw_filename" == *.gz ]]; then rm -f "$WORKING_FA"; fi
+    echo "--------------------------------------------------------------------------"
+done
+
+echo ""
+echo "🎉 === MASTERS SPECIMEN PORTFOLIO SCREENING PIPELINE COMPLETE ==="
+echo "Final Text Matrix Appended To: $SUMMARY_LOG"
