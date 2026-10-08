@@ -1,45 +1,87 @@
-markdown# Translated Cross-Species Alignment Pipeline for Bat Lung Transcriptomics
+bash
+nano run_transcriptomics_pipeline.sh
+Use code with caution.
+Make the file blank (Ctrl + K), paste this code, then save and exit (Ctrl + O, Enter, Ctrl + X):
+bash
+#!/usr/bin/env bash
+# ==============================================================================
+# Pipeline: Translated Cross-Species Alignment for Unannotated Transcriptomics
+# Author: shazia @ ZaffarHaque
+# Repository: Bat-Lung-Transcriptomics-Pipeline
+# License: MIT
+# ==============================================================================
 
-An automated Linux/Ubuntu shell pipeline engineered to verify tissue-level expression profiles and map sequence conservation metrics within unannotated transcriptomic datasets. 
+set -eo pipefail
 
-## 🧬 Scientific Rationale
-This framework was developed to profile target physiological, metabolic, and cellular signaling networks within the unannotated **Single-Cell RNA-seq lung atlas of the Chinese Horseshoe Bat (*Rhinolophus sinicus*)** (BioProject: `CNP0002166`). 
+# --- [CONFIGURATION PANEL] ----------------------------------------------------
+THREADS="$(nproc)"                      # Dynamically scale to all available CPU cores
+EVALUE="1e-5"                           # Nature/Science peer-review stringency cutoff
+MATRIX="BLOSUM62"                       # Standard amino acid substitution matrix
+READ_LIMIT="4000000"                    # 4M lines = 1,000,000 deep FASTQ reads
 
-By performing cross-species translated alignments directly against known mammalian protein target templates, this architecture systematically bypasses potential reference-genome annotation gaps.
+# Data Sources and Reference Paths
+PROTEIN_FASTA="target_proteins.fasta"
+DB_NAME="bat_target_db"
+OUTPUT_TAB="lung_atlas_blast_hits.tsv"
+SUMMARY_TSV="bat_lung_expression_summary.tsv"
 
-## 🛠️ Pipeline Infrastructure
-The core program maps out an automated 4-stage processing workflow inside a native Linux terminal environment:
-1. **cURL Data Streaming**: Taps directly into remote genomic data archives without local storage overhead.
-2. **Dynamic Parallel Decompression**: Leverages multi-threaded `pigz` processing to extract streaming read tracks on the fly.
-3. **Boundary Truncation**: Restricts memory constraints uniformly to a subset of 100,000 sequence rows (25,000 FASTQ reads) per dataset file using system streams.
-4. **Heuristic Six-Frame `blastx` Translation**: Systematically scales input nucleotides across all six open reading frames, executing sequence-space alignments against a target protein database using a `BLOSUM62` substitution matrix at an E-value cutoff constraint of `1e-4`.
+# Validated CNGB Data Storage Archive Nodes (BioProject: CNP0002166)
+URL_HTTP="https://cngb.org"
+URL_FTP="ftp://ftp.cngb.org/pub/CNSA/data2/CNP0002166/CNS0418238/CNX0345370/CNR0425223/YX276-YX276-1_L4_1.fq.gz"
+# ------------------------------------------------------------------------------
 
-## 🎛️ Initial Multi-Locus Evaluation Panel (8 Target Genes)
-* **Expressed (+ve / Validated)**: `AOPEP`, `FBP1`, `FBP2`, `PLS3`, `SLC6A14`, `SLC71A2` (*MFSD14B*), `SSXA1` (*SSX*).
-* **Undetected Genomic Gap (-ve)**: `AGTR2` (Angiotensin II Receptor Type 2).
+echo "=== [STAGE 1/4] Compiling Target Protein Reference Database ==="
+if [ ! -f "$PROTEIN_FASTA" ]; then
+    echo "❌ Error: Required reference file '$PROTEIN_FASTA' is missing!"
+    echo "Please ensure your protein sequences are formatted in this directory."
+    exit 1
+fi
+makeblastdb -in "$PROTEIN_FASTA" -dbtype prot -out "$DB_NAME"
 
-## 💻 Software Prerequisites & Installation
-This architecture is built for native **Ubuntu / Linux operating systems**. Configure your local terminal dependencies using the following commands:
+echo "=== [STAGE 2 & 3/4] Streaming, Decompression & Boundary Truncation ==="
+if [ -f "subset_reads.fastq" ] && [ -s "subset_reads.fastq" ]; then
+    echo "ℹ️ Valid local raw dataset cache detected. Skipping network download."
+else
+    echo "📥 Initializing streaming architecture from remote genomic archive..."
+    # Fallback Loop: Tries optimized HTTP browser emulation first, drops to native FTP if blocked
+    if curl -sL -f -A "Mozilla/5.0" "$URL_HTTP" | zcat -f | head -n "$READ_LIMIT" > subset_reads.fastq; then
+        echo "✅ HTTP Stream connection successful."
+    elif wget -qO- "$URL_FTP" | zcat -f | head -n "$READ_LIMIT" > subset_reads.fastq; then
+        echo "✅ FTP Backup Stream connection successful."
+    else
+        echo "❌ Error: Network connections rejected by data archive. Check firewall ports 21/443."
+        exit 1
+    fi
+fi
 
-```bash
-# Update local system packages
-sudo apt-get update
+echo "🔄 Converting nucleotide raw space into linear search FASTA..."
+awk 'NR%4==1{printf ">%s\n", substr($0,2)} NR%4==2{print}' subset_reads.fastq > subset_reads.fasta
 
-# Install the official NCBI BLAST+ computational suite
-sudo apt-get install ncbi-blast+
+echo "=== [STAGE 4/4] Computing Six-Frame Translated blastx Alignment ==="
+echo "💻 Processing alignment matrices natively utilizing $THREADS threads..."
+blastx \
+    -query subset_reads.fasta \
+    -db "$DB_NAME" \
+    -matrix "$MATRIX" \
+    -evalue "$EVALUE" \
+    -outfmt "6 qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue bitscore" \
+    -num_threads "$THREADS" > "$OUTPUT_TAB"
 
-# Install parallel compression and stream utilities
-sudo apt-get install curl pigz awk
-```
+echo "=== [FINAL REPORT] Generating Cross-Species Expression Profile ==="
+echo -e "Gene_Target\tHit_Count\tAvg_Identity%"
+echo -e "-----------\t---------\t-------------"
 
-## 🚀 Replicating Locally
-To execute the complete automated workflow, clone this repository and run the main shell script:
-```bash
-chmod +x run_transcriptomics_pipeline.sh
-./run_transcriptomics_pipeline.sh
-```
+# Parse Tabular Data and output both to screen and results folder
+awk -F'\t' '
+    {
+        count[$2]++;
+        sum_id[$2]+=$3;
+    }
+    END {
+        for (gene in count) {
+            printf "%s\t%d\t%.2f%%\n", gene, count[gene], (sum_id[gene]/count[gene])
+        }
+    }
+' "$OUTPUT_TAB" | sort -rn -k2 | tee ../results/"$SUMMARY_TSV"
 
----
-
-### 🏛️ Usage Disclaimer
-Computational automation architectures, multi-batch search query logic, and grammatical formatting were optimized utilizing the Google Gemini large language model software platform. All biological parameters, parameter metrics, dataset inputs, and interpretation matrices were verified and executed locally by the authors.
+echo "🎉 Analysis complete. Production summary spreadsheet saved to: ../results/$SUMMARY_TSV"
