@@ -122,7 +122,7 @@ for file_path in "$SOURCE_DIR"/*; do
         echo "$species_token | Stringent (Tier 1) | ${max_length} bp | $top_evalue | Conserved Ortholog Retained" >> "$SUMMARY_LOG"
     else
         # 4. Tier 2: Relaxed Forensic Pass (Motif Fragment Resolution Fallback)
-        echo "$species_token | Relaxed (Tier 2) | ${max_len} bp | $top_evalue | Promoter Collapsed / Remnants Only" >> "$SUMMARY_LOG"
+        echo "$species_token | Relaxed (Tier 2) | ${max_length} bp | $top_evalue | Promoter Collapsed / Remnants Only" >> "$SUMMARY_LOG"
         RELAXED_OUT="${SCRATCH_ROOT}/${species_token}_relaxed.txt"
         blastn \
             -query "$QUERY_FA" \
