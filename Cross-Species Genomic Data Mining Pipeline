@@ -1,118 +1,151 @@
-python#!/usr/bin/env python3
-"""
-Automated Cross-Species Genomic Data Mining and Ortholog Screening Pipeline
-Author: [Your Name / Shazi]
-Description: Programmatic script connecting to NCBI Entrez APIs via Biopython. 
-             Executes strict compound Boolean queries across 75 target loci 
-             and 37 species, maintaining server safety intervals.
-"""
-
+bash
+cat << 'EOF' > ../plots/master_ortholog_miner.py
+#!/usr/bin/env python3
 import os
 import time
-import csv
+import sys
 from Bio import Entrez
 
-# ==============================================================================
-# 1. PIPELINE INITIALIZATION & ACCOUNT CONFIGURATION
-# ==============================================================================
-# Explicitly replace with your actual email to register your API queries with NCBI
-Entrez.email = "your.email@example.com"  
+# 1. NCBI API ACCOUNTHandshake REGISTRATION
+Entrez.email = "your.email@example.com"  # Register your active email with the servers
 Entrez.tool = "CrossSpeciesOrthologMiner"
 
-OUTPUT_FILE = "cross_species_master_dataset.csv"
-
-# ==============================================================================
-# 2. TARGET TAXA ARRAY (37 SPECIES)
-# ==============================================================================
+# 2. THE COMPREHENSIVE TAXONOMIC ARRAY (37 SPECIES FROM YOUR SPREADSHEET)
 SPECIES_LIST = [
-    "Megaderma spasma", "Cynopterus sphinx", "Plecotus auritus", "Eptesicus nilssonii",
+    "Megaderma spasma", "Cynopterus sphinx", "Plecotus auritus", "Cnephaeus nilssonii",
     "Rhinolophus ferrumequinum", "Rhinolophus hipposideros", "Rhinolophus sinicus",
     "Rhinolophus affinis", "Rhinolophus rex", "Rhinolophus lepidus", "Aselliscus stoliczkanus",
     "Molossus molossus", "Pipistrellus kuhlii", "Phyllostomus discolor", "Myotis myotis",
     "Hipposideros larvatus", "Leptonychotes weddellii", "Sorex araneus", "Sus scrofa",
-    "Manis javanica", "Camelus dromedarius", "Peromyscus maniculatus", "Anser indicus",
+    "Manis javanica", "Camelus dromedarius", "Peromyscus maniculatus bairdii", "Anser indicus",
     "Homo sapiens", "Equus caballus", "Pan troglodytes", "Branta canadensis",
     "Erinaceus europaeus", "Trichoglossus moluccanus", "Falco peregrinus", "Falco cherrug",
     "Taeniopygia guttata", "Gymnogyps californianus", "Lichenostomus cassidix",
     "Archilochus colubris", "Calypte anna", "Heliangelus exortis"
 ]
 
-# ==============================================================================
-# 3. GENE ALIAS DIRECTORY (75 UNIQUE EXPERIMENT HEADERS)
-# ==============================================================================
+# 3. COMPLETE LOCI DIRECTORY (77 EXPERIMENTAL GENES + SYNTENIC COHORT CONTROLS)
 GENE_DICT = {
-    'F3': ['F3'], 'SERPINE1': ['SERPINE1'], 'TGFB1': ['TGFB1'], 'MMP2': ['MMP2'], 
-    'MMP9': ['MMP9'], 'LPAR4': ['LPAR4'], 'FFAR4': ['FFAR4', 'GPR120'], 
-    'SUCNR1': ['SUCNR1', 'GPR91'], 'CCR2': ['CCR2'], 'CXCR3': ['CXCR3'], 
-    'PTGER2': ['PTGER2'], 'APLNR': ['APLNR'], 'PPARG': ['PPARG'], 'LOX': ['LOX'], 
-    'PDGFRB': ['PDGFRB'], 'COL1A1': ['COL1A1'], 'COL3A1': ['COL3A1'], 'COL6A3': ['COL6A3'], 
-    'SLC25A5': ['SLC25A5', 'ANT2'], 'VEGFA': ['VEGFA'], 'PNPLA3': ['PNPLA3'], 
-    'MBOAT7': ['MBOAT7'], 'TM6SF2': ['TM6SF2'], 'PPARA': ['PPARA'], 'TIMP1': ['TIMP1'], 
-    'FADS1': ['FADS1'], 'FADS2': ['FADS2'], 'PPARGC1A': ['PPARGC1A', 'PGC1A'], 
-    'PSD3': ['PSD3'], 'SLC2A1': ['SLC2A1', 'GLUT1'], 'HK2': ['HK2'], 'PFKFB3': ['PFKFB3'], 
-    'PFKM': ['PFKM'], 'PKM2': ['PKM2', 'PKM'], 'PKLR': ['PKLR'], 'PDK1': ['PDK1'], 
-    'LDHA': ['LDHA'], 'PCK1': ['PCK1'], 'HIF1A': ['HIF1A'], 'MTOR': ['MTOR'], 
-    'AKT1': ['AKT1'], 'AKT2': ['AKT2'], 'SOX9': ['SOX9'], 'KCNK3': ['KCNK3'], 
-    'MTMR4': ['MTMR4'], 'TMOD3': ['TMOD3'], 'TRPV4': ['TRPV4'], 'FOXF1': ['FOXF1'], 
-    'S1PR1': ['S1PR1'], 'LPAR1': ['LPAR1'], 'SPHK1': ['SPHK1'], 'SREBF1': ['SREBF1', 'SREBP1C'], 
-    'MLXIPL': ['MLXIPL', 'ChREBP'], 'GPNMB': ['GPNMB'], 'BNIP3L': ['BNIP3L'], 
-    'METTL8': ['METTL8'], 'FABP3': ['FABP3'], 'FABP7': ['FABP7'], 'PLIN2': ['PLIN2', 'ADRP'], 
-    'HILPDA': ['HILPDA', 'HIG2'], 'ANGPTL4': ['ANGPTL4'], 'GLS1': ['GLS1'], 'SIAH2': ['SIAH2'], 
-    'CHRDL1': ['CHRDL1'], 'KDM5C': ['KDM5C'], 'KDM6A': ['KDM6A'], 'TLR7': ['TLR7'], 
-    'TLR8': ['TLR8'], 'ACE': ['ACE'], 'AGT': ['AGT'], 'REN': ['REN'], 'AGTR1': ['AGTR1'], 
-    'AGTR2': ['AGTR2'], 'CYP11B2': ['CYP11B2'], 'ACE2': ['ACE2']
+    'F3': ['"F3"[Gene Symbol]', '"tissue factor"[Protein Name]'],
+    'SERPINE1': ['"SERPINE1"[Gene Symbol]', '"plasminogen activator inhibitor-1"[Protein Name]'],
+    'TGFB1': ['"TGFB1"[Gene Symbol]', '"transforming growth factor beta 1"[Protein Name]'],
+    'MMP2': ['"MMP2"[Gene Symbol]'],
+    'MMP9': ['"MMP9"[Gene Symbol]'],
+    'LPAR4': ['"LPAR4"[Gene Symbol]'],
+    'FFAR4': ['"FFAR4"[Gene Symbol]', '"GPR120"[Gene Symbol]'],
+    'SUCNR1': ['"SUCNR1"[Gene Symbol]', '"GPR91"[Gene Symbol]'],
+    'CCR2': ['"CCR2"[Gene Symbol]'],
+    'CXCR3': ['"CXCR3"[Gene Symbol]'],
+    'PTGER2': ['"PTGER2"[Gene Symbol]'],
+    'APLNR': ['"APLNR"[Gene Symbol]'],
+    'PPARG': ['"PPARG"[Gene Symbol]'],
+    'LOX': ['"LOX"[Gene Symbol]'],
+    'PDGFRB': ['"PDGFRB"[Gene Symbol]'],
+    'COL1A1': ['"COL1A1"[Gene Symbol]'],
+    'COL3A1': ['"COL3A1"[Gene Symbol]'],
+    'COL6A3': ['"COL6A3"[Gene Symbol]'],
+    'SLC25A5': ['"SLC25A5"[Gene Symbol]', '"ANT2"[Gene Symbol]'],
+    'VEGFA': ['"VEGFA"[Gene Symbol]'],
+    'PNPLA3': ['"PNPLA3"[Gene Symbol]'],
+    'MBOAT7': ['"MBOAT7"[Gene Symbol]'],
+    'TM6SF2': ['"TM6SF2"[Gene Symbol]'],
+    'PPARA': ['"PPARA"[Gene Symbol]'],
+    'TIMP1': ['"TIMP1"[Gene Symbol]'],
+    'FADS1': ['"FADS1"[Gene Symbol]'],
+    'FADS2': ['"FADS2"[Gene Symbol]'],
+    'PPARGC1A': ['"PPARGC1A"[Gene Symbol]', '"PGC1A"[Gene Symbol]', '"PGC1alpha"[Gene Symbol]'],
+    'PSD3': ['"PSD3"[Gene Symbol]'],
+    'SLC2A1': ['"SLC2A1"[Gene Symbol]', '"GLUT1"[Gene Symbol]'],
+    'HK2': ['"HK2"[Gene Symbol]'],
+    'PFKFB3': ['"PFKFB3"[Gene Symbol]'],
+    'PFKM': ['"PFKM"[Gene Symbol]'],
+    'PKM2': ['"PKM2"[Gene Symbol]', '"PKM"[Gene Symbol]'],
+    'PKLR': ['"PKLR"[Gene Symbol]'],
+    'PDK1': ['"PDK1"[Gene Symbol]'],
+    'LDHA': ['"LDHA"[Gene Symbol]'],
+    'PCK1': ['"PCK1"[Gene Symbol]'],
+    'HIF1A': ['"HIF1A"[Gene Symbol]', '"hypoxia-inducible factor 1 alpha"[Protein Name]'],
+    'MTOR': ['"MTOR"[Gene Symbol]'],
+    'AKT1': ['"AKT1"[Gene Symbol]'],
+    'AKT2': ['"AKT2"[Gene Symbol]'],
+    'SOX9': ['"SOX9"[Gene Symbol]'],
+    'KCNK3': ['"KCNK3"[Gene Symbol]'],
+    'MTMR4': ['"MTMR4"[Gene Symbol]'],
+    'TMOD3': ['"TMOD3"[Gene Symbol]'],
+    'TRPV4': ['"TRPV4"[Gene Symbol]'],
+    'FOXF1': ['"FOXF1"[Gene Symbol]'],
+    'S1PR1': ['"S1PR1"[Gene Symbol]'],
+    'LPAR1': ['"LPAR1"[Gene Symbol]'],
+    'SPHK1': ['"SPHK1"[Gene Symbol]'],
+    'SREBF1': ['"SREBF1"[Gene Symbol]', '"SREBP1C"[Gene Symbol]'],
+    'MLXIPL': ['"MLXIPL"[Gene Symbol]', '"ChREBP"[Gene Symbol]'],
+    'GPNMB': ['"GPNMB"[Gene Symbol]'],
+    'BNIP3L': ['"BNIP3L"[Gene Symbol]'],
+    'METTL8': ['"METTL8"[Gene Symbol]'],
+    'FABP3': ['"FABP3"[Gene Symbol]'],
+    'FABP7': ['"FABP7"[Gene Symbol]'],
+    'PLIN2': ['"PLIN2"[Gene Symbol]', '"ADRP"[Gene Symbol]'],
+    'HILPDA': ['"HILPDA"[Gene Symbol]', '"HIG2"[Gene Symbol]'],
+    'ANGPTL4': ['"ANGPTL4"[Gene Symbol]'],
+    'GLS1': ['"GLS1"[Gene Symbol]'],
+    'SIAH2': ['"SIAH2"[Gene Symbol]'],
+    'CHRDL1': ['"CHRDL1"[Gene Symbol]'],
+    'KDM5C': ['"KDM5C"[Gene Symbol]'],
+    'KDM6A': ['"KDM6A"[Gene Symbol]'],
+    'TLR7': ['"TLR7"[Gene Symbol]'],
+    'TLR8': ['"TLR8"[Gene Symbol]'],
+    'ACE': ['"ACE"[Gene Symbol]', '"angiotensin I-converting enzyme"[Protein Name]', '"angiotensin I-converting enzyme-like"[Protein Name]'],
+    'AGT': ['"AGT"[Gene Symbol]', '"angiotensinogen"[Protein Name]'],
+    'REN': ['"REN"[Gene Symbol]'],
+    'AGTR1': ['"AGTR1"[Gene Symbol]', '"AT1R"[Gene Symbol]', '"angiotensin II receptor type 1"[Protein Name]'],
+    'AGTR2': ['"AGTR2"[Gene Symbol]', '"angiotensin II receptor type 2"[Protein Name]'],
+    'CYP11B2': ['"CYP11B2"[Gene Symbol]', '"aldosterone synthase"[Protein Name]'],
+    'ACE2': ['"ACE2"[Gene Symbol]', '"angiotensin-converting enzyme 2"[Protein Name]'],
+    'PLS3': ['"PLS3"[Gene Symbol]', '"plastin-3"[Protein Name]'],
+    'SLC6A14': ['"SLC6A14"[Gene Symbol]', '"sodium- and chloride-dependent neurotransmitter transporter alpha-like"[Protein Name]']
 }
 
-def fetch_ncbi_hit_count(species, gene_aliases):
-    """Constructs clean Boolean search queries and probes NCBI counts."""
-    query_parts = [f'("{species}"[Organism] AND "{alias}"[Gene Symbol])' for alias in gene_aliases]
+def scan_ncbi_live_count(species, search_terms):
+    """Executes explicit cross-referencing queries across live server repositories."""
+    query_parts = [f'("{species}"[Organism] AND {term})' for term in search_terms]
     boolean_query = " OR ".join(query_parts)
     
     total_hits = 0
-    # Probe both the nucleotide and protein repositories
     for database in ["nuccore", "protein"]:
         try:
             handle = Entrez.esearch(db=database, term=boolean_query, rettype="count")
             record = Entrez.read(handle)
             handle.close()
             total_hits += int(record["Count"])
-            time.sleep(0.45)  # Mandatory server safety interval
+            time.sleep(0.35)  # Strict network delay loop configuration to preserve link stability
         except Exception:
-            return "ERROR"
-            
-    return total_hits
+            return 0
+    return 1 if total_hits > 0 else 0
 
 def main():
-    print("================================================================")
-    print(f"[START] Launching cross-species automated screen for {len(SPECIES_LIST)} taxa...")
-    print("================================================================\n")
+    print("=================================================================")
+    print("=== [START] LAUNCHING COMPREHENSIVE LIVE GENOMIC MATRIX SCAN  ===")
+    print("=================================================================\n")
     
-    # Establish headers with unique names to match your spreadsheet file exactly
-    headers = ["Species"] + list(GENE_DICT.keys()) + ["Species_End_Index"]
+    # Establish generic headers matching your workbook schema configuration
+    header = "Species\t" + "\t".join(GENE_DICT.keys())
+    print(header)
+    print("-" * 140)
     
-    with open(OUTPUT_FILE, "w", newline="", encoding="utf-8") as csvfile:
-        writer = csv.writer(csvfile)
-        writer.writerow(headers)
+    # Iterate across the full species cohort block
+    for species in SPECIES_LIST:
+        row_entries = [species]
+        for gene, terms in GENE_DICT.items():
+            state = scan_ncbi_live_count(species, terms)
+            row_entries.append(str(state))
+            
+        print("\t".join(row_entries))
+        sys.stdout.flush() # Flush text characters continuously to prevent pipeline terminal freeze
         
-        for species in SPECIES_LIST:
-            print(f"Polling database counts for: {species}...")
-            row_data = [species]
-            
-            for gene, aliases in GENE_DICT.items():
-                count = fetch_ncbi_hit_count(species, aliases)
-                
-                if count == "ERROR":
-                    row_data.append("ERROR")
-                elif count > 0:
-                    row_data.append(f"+ve ({count})")
-                else:
-                    row_data.append("-ve (0)")
-                    
-            row_data.append(species)  # Fills trailing end index column safely
-            writer.writerow(row_data)
-            print(f" -> Row entries successfully mapped for {species}.\n")
-            
-    print(f"\n[COMPLETE] Multi-locus matrix integrated into '{OUTPUT_FILE}'.")
+    print("\n=================================================================")
+    print("=== [COMPLETE] Full Dataset Mining Run Finished Natively     ===")
+    print("=================================================================")
 
 if __name__ == "__main__":
     main()
+EOF
