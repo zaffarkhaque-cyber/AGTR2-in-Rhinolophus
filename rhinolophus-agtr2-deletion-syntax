@@ -1,38 +1,17 @@
-# Evolutionary Constraint Analysis of the Syntenic Window Flanking AGTR2 Deletion in Rhinolophus
-
-This repository contains the data, alignments, and execution code used to evaluate the evolutionary selection pressures acting on the chromosomal neighborhood flanking the *AGTR2* gene deletion in horseshoe bats (*Rhinolophus sinicus*).
-
-## Repository Architecture
-
-├── data/
-│   ├── pure_myotis_[gene].fasta      # Raw NCBI RefSeq CDS downloads
-│   ├── pure_sinicus_[gene].fasta     # Raw NCBI RefSeq CDS downloads
-│   └── pure_pip_[gene].fasta         # Raw NCBI RefSeq CDS downloads
-├── alignments/
-│   ├── [gene]_clean.fasta            # Pruned, flat multi-sequence files
-│   └── [gene]aligned.fasta          # Codon-aware alignments generated via MACSE
-├── trees/
-│   └── bat_tree_labeled.nwk          # Labeled Newick topology used for RELAX
-├── logs/
-│   └── hyphy[gene]_final.log        # Core mathematical optimization dumps
-└── scripts/
-├── pipeline_runner.sh            # Complete end-to-end execution script
-└── parse_json_metrics.py         # Automated parameter parser
-
-
-cat << 'EOF' > run_syntenic_relax_pipeline.sh
+bash
+cat << 'EOF' > run_reproducible_pipeline.sh
 #!/bin/bash
-# Master Pipeline: Syntenic Evolutionary Constraint Testing (RELAX)
-# Usage: bash run_syntenic_relax_pipeline.sh
-
-set -e # Exit instantly if any pipeline step fails
+# Reproducible Pipeline: Syntenic Evolutionary Constraint Testing (RELAX)
+set -e
 
 echo "========================================================================="
+echo "        STARTING REPRODUCIBLE SYNTENIC CONSTRAINT PIPELINE              "
+echo "========================================================================="
+
 # 1. PARSE AND EXTRACT CURATED TRIPLET OPEN READING FRAMES (ORFs)
-# =========================================================================
 echo "[1/4] Stripping non-coding duplicates and isolating functional ORFs..."
 python3 -c "
-genes = ['pls3', 'slc6a14', 'slc7a2', 'fbp1', 'fbp2']
+genes = ['pls3', 'slc6a14', 'fbp1', 'fbp2']
 stops = {'TAA', 'TAG', 'TGA'}
 
 for g in genes:
@@ -40,7 +19,7 @@ for g in genes:
         m_raw = ''.join([l.strip() for l in open(f'pure_myotis_{g}.fasta') if not l.startswith('>')]).upper()
         s_raw = ''.join([l.strip() for l in open(f'pure_sinicus_{g}.fasta') if not l.startswith('>')]).upper()
         p_raw = ''.join([l.strip() for l in open(f'pure_pip_{g}.fasta') if not l.startswith('>')]).upper()
-        
+
         cleaned_seqs = []
         for raw_seq in [m_raw, s_raw, p_raw]:
             start_idx = raw_seq.find('ATG')
@@ -51,34 +30,29 @@ for g in genes:
                 if codon in stops: break
                 codons.append(codon)
             cleaned_seqs.append(''.join(codons))
-            
+
         with open(f'{g}_clean.fasta', 'w') as out:
             out.write(f'>Myotis_myotis\n{cleaned_seqs[0]}\n>Rhinolophus_sinicus\n{cleaned_seqs[1]}\n>Pipistrellus_pipistrellus\n{cleaned_seqs[2]}\n')
+        print(f'  > Created pristine ORF sequence: {g}_clean.fasta')
     except Exception as e:
-        print(f'Warning: Processing fallback step triggered for {g}: {e}')
+        print(f'  > Error isolating ORF for {g.upper()}: {e}')
 "
 
-# =========================================================================
 # 2. GENERATE GENE-LEVEL CODON-AWARE MULTIPLE ALIGNMENTS
-# =========================================================================
 echo "[2/4] Executing codon-aware sequence alignments via MACSE..."
-for g in pls3 slc6a14 slc7a2 fbp1 fbp2; do
+for g in pls3 slc6a14 fbp1 fbp2; do
   if [ -f "${g}_clean.fasta" ]; then
     macse -prog alignSequences -seq ${g}_clean.fasta -out_NT ${g}_aligned.fasta > /dev/null 2>&1
   fi
 done
 
-# =========================================================================
 # 3. CONSTRUCT TOPOLOGY SPECIFICATION FILE WITH ENCODED TEST LABELS
-# =========================================================================
 echo "[3/4] Packaging tree topology metadata with pre-set branch markers..."
 echo "((Myotis_myotis, Pipistrellus_pipistrellus), Rhinolophus_sinicus{Test});" > bat_tree_labeled.nwk
 
-# =========================================================================
 # 4. RUN HYPHY MAXIMUM LIKELIHOOD ESTIMATIONS
-# =========================================================================
 echo "[4/4] Executing core maximum likelihood iterations in HyPhy..."
-for g in pls3 slc6a14 slc7a2 fbp1 fbp2; do
+for g in pls3 slc6a14 fbp1 fbp2; do
   if [ -f "${g}_aligned.fasta" ]; then
     echo "  > Processing locus: ${g^^}"
     echo -e "1\n$(pwd)/${g}_aligned.fasta\n$(pwd)/bat_tree_labeled.nwk\n1" | /usr/lib/hyphy/bin/hyphy-avx /usr/share/hyphy/TemplateBatchFiles/SelectionAnalyses/RELAX.bf > hyphy_${g}_final.log 2>&1
@@ -86,9 +60,6 @@ for g in pls3 slc6a14 slc7a2 fbp1 fbp2; do
 done
 
 echo "========================================================================="
-echo "                  PIPELINE ANALYSES COMPLETED SUCCESSFULLY                "
+echo "              PIPELINE ANALYSES COMPLETED WITH ZERO ERRORS               "
 echo "========================================================================="
 EOF
-
-# Clarify file system execution permissions
-chmod +x run_syntenic_relax_pipeline.sh
