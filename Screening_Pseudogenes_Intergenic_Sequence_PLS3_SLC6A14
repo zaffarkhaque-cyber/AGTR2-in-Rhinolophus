@@ -282,3 +282,44 @@ verify_math("Apus apus (Control Locus)", [2, 6, 1, 4, 1, 54])
 verify_math("Calypte anna", [5, 4, 5, 2, 3, 5])
 print("="*90)
 '
+
+
+To generate the Figures:
+$ echo '#!/usr/bin/env python3' > generate_unified_figure.py
+echo 'import os' >> generate_unified_figure.py
+echo 'import numpy as np' >> generate_unified_figure.py
+echo 'import pandas as pd' >> generate_unified_figure.py
+echo 'import matplotlib.pyplot as plt' >> generate_unified_figure.py
+echo 'import seaborn as sns' >> generate_unified_figure.py
+echo 'def main():' >> generate_unified_figure.py
+echo '    base_dir = "/mnt/c/Users/shazi/OneDrive/AGTR2"' >> generate_unified_figure.py
+echo '    out_img = os.path.join(base_dir, "Figure1_Unified_AGTR2_Landscape.png")' >> generate_unified_figure.py
+echo '    species_list = ["Myotis myotis","Rhinolophus affinis / sinicus","Rhinolophus ferrumequinum","Rhinolophus Hipposideros","Selasphorus platycercus","Apus apus (Control Locus)","Calypte anna"]' >> generate_unified_figure.py
+echo '    frames = ["+1", "+2", "+3", "-1", "-2", "-3"]' >> generate_unified_figure.py
+echo '    matrix_data = np.array([[28, 36, 36, 119, 31, 20],[20, 29, 11, 14, 20, 15],[20, 17, 23, 18, 22, 13],[14, 28, 12, 26, 26, 22],[5, 2, 2, 2, 2, 2],[2, 6, 1, 4, 1, 54],[5, 4, 5, 2, 3, 5]])' >> generate_unified_figure.py
+echo '    v_values = [0.33, 0.14, 0.08, 0.13, 0.20, 0.76, 0.13]' >> generate_unified_figure.py
+echo '    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 6.5), dpi=300)' >> generate_unified_figure.py
+echo '    sns.set_theme(style="whitegrid")' >> generate_unified_figure.py
+echo '    df_a = pd.DataFrame({"Locus": species_list, "V": v_values}).sort_values(by="V", ascending=True)' >> generate_unified_figure.py
+echo '    bar_colors = ["#4682B4" if v < 0.25 else "#B22222" for v in df_a["V"]]' >> generate_unified_figure.py
+echo '    bars = ax1.barh(df_a["Locus"], df_a["V"], color=bar_colors, edgecolor="none", height=0.55)' >> generate_unified_figure.py
+echo '    for bar in bars:' >> generate_unified_figure.py
+echo '        width = bar.get_width()' >> generate_unified_figure.py
+echo '        ax1.text(width + 0.02, bar.get_y() + bar.get_height()/2, f"V = {width:.2f}", va="center", ha="left", fontsize=9, weight="bold", color="#2D3748")' >> generate_unified_figure.py
+echo '    ax1.set_title("A. Effect Size Distribution (Cramer s V)", fontsize=11, weight="bold", pad=15, loc="left")' >> generate_unified_figure.py
+echo '    ax1.set_xlabel("Cramer s V Metric", fontsize=10, labelpad=8)' >> generate_unified_figure.py
+echo '    ax1.set_xlim(0, 1.0)' >> generate_unified_figure.py
+echo '    ax1.tick_params(labelsize=9.5)' >> generate_unified_figure.py
+echo '    ax1.grid(axis="x", linestyle="--", alpha=0.5)' >> generate_unified_figure.py
+echo '    df_b = pd.DataFrame(matrix_data, index=species_list, columns=frames)' >> generate_unified_figure.py
+echo '    sns.heatmap(df_b, ax=ax2, annot=True, fmt="d", cmap="Reds", linewidths=1.2, linecolor="#F7FAFC", cbar_kws={"label": "Absolute Hit Frequency (Identity >= 50%)", "pad": 0.04}, annot_kws={"size": 10, "weight": "medium"})' >> generate_unified_figure.py
+echo '    ax2.add_patch(plt.Rectangle((3, 0), 1, 1, fill=False, edgecolor="#1A202C", lw=3, clip_on=False))' >> generate_unified_figure.py
+echo '    ax2.add_patch(plt.Rectangle((5, 5), 1, 1, fill=False, edgecolor="#1A202C", lw=3, clip_on=False))' >> generate_unified_figure.py
+echo '    ax2.set_title("B. Six-Frame Translation Density Matrix", fontsize=11, weight="bold", pad=15, loc="left")' >> generate_unified_figure.py
+echo '    ax2.set_xlabel("Triplet Reading Frames", fontsize=10, labelpad=8)' >> generate_unified_figure.py
+echo '    ax2.tick_params(labelsize=9.5, rotation=0)' >> generate_unified_figure.py
+echo '    plt.tight_layout()' >> generate_unified_figure.py
+echo '    plt.savefig(out_img, dpi=300)' >> generate_unified_figure.py
+echo '    print(f"[+] Multi-panel Main Figure successfully generated and saved to:\n    {out_img}")' >> generate_unified_figure.py
+echo 'if __name__ == "__main__": main()' >> generate_unified_figure.py
+(base) shazia@ZaffarHaque:/mnt/c/Users/shazi/OneDrive/AGTR2$ python3 generate_unified_figure.py
