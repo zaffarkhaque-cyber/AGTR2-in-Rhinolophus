@@ -250,3 +250,35 @@ if __name__ == "__main__":
     main()
 EOF
 python3 get_myotis_raw_alignments.py
+
+TO OBTAIN STATISTICAL ANALYSIS:  
+python3 -c '
+import numpy as np
+
+def verify_math(label, counts):
+    obs = np.array(counts)
+    N = obs.sum()
+    k = len(obs)
+    expected = np.full(k, N / k)
+    
+    # Standard Chi-Square Goodness-of-Fit formula: sum((O - E)^2 / E)
+    chi2 = np.sum((obs - expected) ** 2 / expected)
+    
+    # 1D Cramér’s V for Goodness-of-Fit: sqrt( Chi2 / (N * (k - 1)) )
+    v_stat = np.sqrt(chi2 / (N * (k - 1)))
+    
+    # Modal frame percentage calculation
+    modal_share = (obs.max() / N) * 100
+    
+    print(f"{label:<30} | N = {N:<4} | Chi2 = {chi2:<6.2f} | Cramér\u0027s V = {v_stat:<4.2f} | Modal = {modal_share:.1f}%")
+
+print("="*90 + "\n[LIVE INTERPRETER VERIFICATION] RAW STATISTICAL DETERMINATION\n" + "="*90)
+verify_math("Myotis myotis", [28, 36, 36, 119, 31, 20])
+verify_math("Rhinolophus affinis/sinicus", [20, 29, 11, 14, 20, 15])
+verify_math("Rhinolophus ferrumequinum", [20, 17, 23, 18, 22, 13])
+verify_math("Rhinolophus Hipposideros", [14, 28, 12, 26, 26, 22])
+verify_math("Selasphorus platycercus", [5, 2, 2, 2, 2, 2])
+verify_math("Apus apus (Control Locus)", [2, 6, 1, 4, 1, 54])
+verify_math("Calypte anna", [5, 4, 5, 2, 3, 5])
+print("="*90)
+'
