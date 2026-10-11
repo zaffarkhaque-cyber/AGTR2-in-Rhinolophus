@@ -1,9 +1,10 @@
-(base) shazia@ZaffarHaque:/mnt/c/Users/shazi/OneDrive/AGTR2$ cat << 'EOF' > run_detailed_frame_matrix.py
+/mnt/c/Users/shazi/OneDrive/AGTR2$ cat << 'EOF' > run_myotis_exclusive_matrix.py
 #!/usr/bin/env python3
 """
-Script: run_detailed_frame_matrix.py
+Script: run_myotis_exclusive_matrix.py
 Description: Exhaustively profiles every single frame separately (+1 to +3, -1 to -3)
-             across all 8 intergenic windows for both Myotis and Apus baits.
+             across all 8 intergenic windows using exclusively the Myotis bait.
+             Outputs both terminal log metrics and an Excel spreadsheet workbook.
 """
 
 import os
@@ -74,12 +75,12 @@ def main():
         "Calypte anna": "INTERGENIC SEQUENCES ANA CALYPTE_PLS3_SLC6A14.txt"
     }
 
+    # Only using the strong mammalian functional query bait
     myotis_bait = "MKGNFTPATINKNVTSSLDFGLGNISGNDSTFNCSHKPSDKHLDAIPVLYYIIFVIGFLVNTIVVTLFCCQKGPKKVSSIYIFNLAVADLLLLATLPLWASYYSYRYDWLFGPVMCKVFGSFLTLNMFASIFFITCMSVDRYQSVIYPFLSQRRNPWQASYIVPLVWCMACLSSLPTFYFRDVRTVEYLGVNACVMAFPPEKYAQWSAGIALMKNILGFIIPLIFIATCYFGIRKHLLKTNSYGKNRITRDQVLKMAAAVVLAFIICWLPFHVLTFLDALAWMGVITSCEVIAVIDLALPFAILLGFTNSCVNPFLYCFVGNRFQQKLRRVFRVPITWLQGKRESVSCRKSSSLREMETFVS"
-    apus_bait = "MQSNYSLLVTTRETLQVLYTALTNSSAALHPPPPCPLTSSDYHFSLIPAIFSVVFVLGLVGNSVVVLVLSCHSGPKTVANIYIFNLAVADLLCLATLPFWATYYSQGYNWLFGSLMCKISSSVLCLNMFASIFFITCMSVDRYHAIVHPLRSQRRTSQQAYFIAVVVWGLACLSSLPTFYFREAHYVESLGVNACIMAFPHESYEKWSVATAFLKNALGFFIPLTVITTCYIWIRRHLLKAQKFGKTKQKRDKVLKLVAAVVVAFLISWFPFHILTFLDALAHMNIINNCGVTGLIDTALPFGICLAFTNSCTNPLLYCFIGNQFQEKLHRLFKRRVHQFNSRGENSSLRKGSCFRDAETPVGREEGPESLL"
 
     detailed_rows = []
 
-    print("[*] Slicing and screening all individual frames...")
+    print("[*] Slicing and screening all individual windows against Myotis query...")
 
     for label, filename in files.items():
         file_path = os.path.join(base_dir, filename)
@@ -91,7 +92,6 @@ def main():
 
         rev_dna = get_reverse_complement(dna)
 
-        # Generate each individual frame translation string
         f_strings = {
             "+1": translate_dna(dna, 0),
             "+2": translate_dna(dna, 1),
@@ -101,98 +101,152 @@ def main():
             "-3": translate_dna(rev_dna, 2),
         }
 
-        # Query metrics dictionary for this lineage
         row_metrics = {"Species Locus Locus": label, "Window Size": len(dna)}
         peak_id = 0.0
 
         for f_name, f_seq in f_strings.items():
             m_hits, m_max = screen_sequence(myotis_bait, f_seq)
-            a_hits, a_max = screen_sequence(apus_bait, f_seq)
-
-            # Map values precisely to their specific frame columns
             row_metrics[f"Myotis ({f_name})"] = m_hits
-            row_metrics[f"Apus ({f_name})"] = a_hits
-
-            if m_max > peak_id: peak_id = m_max
-            if a_max > peak_id: peak_id = a_max
+            if m_max > peak_id:
+                peak_id = m_max
 
         row_metrics["Peak Identity"] = f"{peak_id*100:.1f}%"
         detailed_rows.append(row_metrics)
 
-    # Convert to Dataframe and export
     df = pd.DataFrame(detailed_rows)
 
-    # Reorder columns logically to cleanly separate Myotis frames and Apus frames
     ordered_cols = ["Species Locus Locus", "Window Size",
                     "Myotis (+1)", "Myotis (+2)", "Myotis (+3)", "Myotis (-1)", "Myotis (-2)", "Myotis (-3)",
-                    "Apus (+1)", "Apus (+2)", "Apus (+3)", "Apus (-1)", "Apus (-2)", "Apus (-3)",
                     "Peak Identity"]
 
     df = df[ordered_cols]
-    out_csv = os.path.join(base_dir, "Detailed_Frame_AGTR2_Screen.csv")
-    df.to_csv(out_csv, index=False)
 
-    print(f"\n{'='*110}\n[MASTER LOG] PER-FRAME BREAKDOWN OF THE SEARCH SPECTRUM\n{'='*110}")
+    # Save both outputs cleanly
+    out_csv = os.path.join(base_dir, "Detailed_Frame_Myotis_Only.csv")
+    out_xlsx = os.path.join(base_dir, "AGTR2_Landscape_PerFrame_Myotis_Only.xlsx")
+    df.to_csv(out_csv, index=False)
+    df.to_excel(out_xlsx, index=False)
+
+    print(f"\n{'='*110}\n[MASTER LOG] EXCLUSIVE MYOTIS PER-FRAME CRITERIA MATRIX\n{'='*110}")
     pd.set_option('display.max_columns', None)
     pd.set_option('display.width', 1000)
     print(df.to_string(index=False))
-    print(f"\n[+] Raw dataset successfully written to: {out_csv}")
+    print(f"\n[+] Spreadsheet written to: {out_xlsx}")
 
 if __name__ == "__main__":
     main()
 EOF
-python3 run_detailed_frame_matrix.py
-[*] Slicing and screening all individual frames...
+python3 run_myotis_exclusive_matrix.py
+[*] Slicing and screening all individual windows against Myotis query...
 
 ==============================================================================================================
-[MASTER LOG] PER-FRAME BREAKDOWN OF THE SEARCH SPECTRUM
+[MASTER LOG] EXCLUSIVE MYOTIS PER-FRAME CRITERIA MATRIX
 ==============================================================================================================
-      Species Locus Locus  Window Size  Myotis (+1)  Myotis (+2)  Myotis (+3)  Myotis (-1)  Myotis (-2)  Myotis (-3)  Apus (+1)  Apus (+2)  Apus (+3)  Apus (-1)  Apus (-2)  Apus (-3) Peak Identity
-            Myotis myotis       586642           28           36           36          119           31           20         37         44         34         48         47         31        100.0%
-      Rhinolophus affinis       361841           20           29           11           14           20           15         24         32         43         39         31         34         64.3%
-      Rhinolophus sinicus       361841           20           29           11           14           20           15         24         32         43         39         31         34         64.3%
-Rhinolophus ferrumequinum       350105           20           17           23           18           22           13         33         34         31         33         35         39         64.3%
- Rhinolophus Hipposideros       406506           14           28           12           26           26           22         38         35         31         61         41         44         64.3%
-  Selasphorus platycercus        34655            5            2            2            2            2            2          0          2          0          1          2          2         50.0%
-Apus apus (Control Locus)        48364            2            6            1            4            1           54          4          4          0          2          5          0         92.9%
-             Calypte anna        39428            5            4            5            2            3            5          4          2          1          1          0          0         50.0%
-
+      Species Locus Locus  Window Size  Myotis (+1)  Myotis (+2)  Myotis (+3)  Myotis (-1)  Myotis (-2)  Myotis (-3) Peak Identity
+            Myotis myotis       586642           28           36           36          119           31           20        100.0%
+      Rhinolophus affinis       361841           20           29           11           14           20           15         64.3%
+      Rhinolophus sinicus       361841           20           29           11           14           20           15         64.3%
+Rhinolophus ferrumequinum       350105           20           17           23           18           22           13         57.1%
+ Rhinolophus Hipposideros       406506           14           28           12           26           26           22         57.1%
+  Selasphorus platycercus        34655            5            2            2            2            2            2         50.0%
+Apus apus (Control Locus)        48364            2            6            1            4            1           54         92.9%
+             Calypte anna        39428            5            4            5            2            3            5         50.0%
 
 
 TO RETRIEVE RAW DATA:
-
-
-cat << 'EOF' > export_landscape_to_excel.py
+cat << 'EOF' > get_myotis_raw_alignments.py
 #!/usr/bin/env python3
 """
-Script: export_landscape_to_excel.py
-Description: Generates an Excel spreadsheet breaking down your exact 6-frame metrics.
+Script: get_myotis_raw_alignments.py
+Description: Extracts raw local matching sequences from intergenic frames
+             matching your Myotis bait for direct review in Windows Notepad.
 """
 
 import os
-import pandas as pd
+import re
+
+GENETIC_CODE = {
+    'ATA':'I', 'ATC':'I', 'ATT':'I', 'ATG':'M', 'ACA':'T', 'ACC':'T', 'ACG':'T', 'ACT':'T',
+    'AAC':'N', 'AAT':'N', 'AAA':'K', 'AAG':'K', 'AGC':'S', 'AGT':'S', 'AGA':'R', 'AGG':'R',
+    'CTA':'L', 'CTC':'L', 'CTG':'L', 'CTT':'L', 'CCA':'P', 'CCC':'P', 'CCG':'P', 'CCT':'P',
+    'CAC':'H', 'CAT':'H', 'CAA':'Q', 'CAG':'Q', 'CGA':'R', 'CGC':'R', 'CGG':'R', 'CGT':'R',
+    'GTA':'V', 'GTC':'V', 'GTG':'V', 'GTT':'V', 'GCA':'A', 'GCC':'A', 'GCG':'A', 'GCT':'A',
+    'GAC':'D', 'GAT':'D', 'GAA':'E', 'GAG':'E', 'GGA':'G', 'GGC':'G', 'GGG':'G', 'GGT':'G',
+    'TCA':'S', 'TCC':'S', 'TCG':'S', 'TCT':'S', 'TTC':'F', 'TTT':'F', 'TTA':'L', 'TTG':'L',
+    'TAC':'Y', 'TAT':'Y', 'TAA':'*', 'TAG':'*', 'TGA':'*'
+}
+
+def clean_nucleotide(file_path):
+    if not os.path.exists(file_path): return ""
+    with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+        return re.sub(r'[\d\s\>a-z]', '', f.read()).upper()
+
+def get_reverse_complement(seq):
+    comp = {'A': 'T', 'T': 'A', 'G': 'C', 'C': 'G', 'N': 'N'}
+    return "".join(comp.get(base, base) for base in reversed(seq))
+
+def translate_dna(seq, frame_offset):
+    protein = []
+    for i in range(frame_offset, len(seq) - 2, 3):
+        codon = seq[i:i+3]
+        protein.append(GENETIC_CODE.get(codon, 'X'))
+    return "".join(protein)
 
 def main():
     base_dir = "/mnt/c/Users/shazi/OneDrive/AGTR2"
-    out_excel = os.path.join(base_dir, "AGTR2_Landscape_PerFrame_Breakdown.xlsx")
-    
-    # Precise reconstruction of your validated dataset values
-    raw_data = [
-        {"Species Locus Locus": "Myotis myotis", "Window Size": 586642, "Myotis (+1)": 28, "Myotis (+2)": 36, "Myotis (+3)": 36, "Myotis (-1)": 119, "Myotis (-2)": 31, "Myotis (-3)": 20, "Apus (+1)": 37, "Apus (+2)": 44, "Apus (+3)": 34, "Apus (-1)": 48, "Apus (-2)": 47, "Apus (-3)": 31, "Peak Identity": "100.0%"},
-        {"Species Locus Locus": "Rhinolophus affinis", "Window Size": 361841, "Myotis (+1)": 20, "Myotis (+2)": 29, "Myotis (+3)": 11, "Myotis (-1)": 14, "Myotis (-2)": 20, "Myotis (-3)": 15, "Apus (+1)": 24, "Apus (+2)": 32, "Apus (+3)": 43, "Apus (-1)": 39, "Apus (-2)": 31, "Apus (-3)": 34, "Peak Identity": "64.3%"},
-        {"Species Locus Locus": "Rhinolophus sinicus", "Window Size": 361841, "Myotis (+1)": 20, "Myotis (+2)": 29, "Myotis (+3)": 11, "Myotis (-1)": 14, "Myotis (-2)": 20, "Myotis (-3)": 15, "Apus (+1)": 24, "Apus (+2)": 32, "Apus (+3)": 43, "Apus (-1)": 39, "Apus (-2)": 31, "Apus (-3)": 34, "Peak Identity": "64.3%"},
-        {"Species Locus Locus": "Rhinolophus ferrumequinum", "Window Size": 350105, "Myotis (+1)": 20, "Myotis (+2)": 17, "Myotis (+3)": 23, "Myotis (-1)": 18, "Myotis (-2)": 22, "Myotis (-3)": 13, "Apus (+1)": 33, "Apus (+2)": 34, "Apus (+3)": 31, "Apus (-1)": 33, "Apus (-2)": 35, "Apus (-3)": 39, "Peak Identity": "64.3%"},
-        {"Species Locus Locus": "Rhinolophus Hipposideros", "Window Size": 406506, "Myotis (+1)": 14, "Myotis (+2)": 28, "Myotis (+3)": 12, "Myotis (-1)": 26, "Myotis (-2)": 26, "Myotis (-3)": 22, "Apus (+1)": 38, "Apus (+2)": 35, "Apus (+3)": 31, "Apus (-1)": 61, "Apus (-2)": 41, "Apus (-3)": 44, "Peak Identity": "64.3%"},
-        {"Species Locus Locus": "Selasphorus platycercus", "Window Size": 34655, "Myotis (+1)": 5, "Myotis (+2)": 2, "Myotis (+3)": 2, "Myotis (-1)": 2, "Myotis (-2)": 2, "Myotis (-3)": 2, "Apus (+1)": 0, "Apus (+2)": 2, "Apus (+3)": 0, "Apus (-1)": 1, "Apus (-2)": 2, "Apus (-3)": 2, "Peak Identity": "50.0%"},
-        {"Species Locus Locus": "Apus apus (Control Locus)", "Window Size": 48364, "Myotis (+1)": 2, "Myotis (+2)": 6, "Myotis (+3)": 1, "Myotis (-1)": 4, "Myotis (-2)": 1, "Myotis (-3)": 54, "Apus (+1)": 4, "Apus (+2)": 4, "Apus (+3)": 0, "Apus (-1)": 2, "Apus (-2)": 5, "Apus (-3)": 0, "Peak Identity": "92.9%"},
-        {"Species Locus Locus": "Calypte anna", "Window Size": 39428, "Myotis (+1)": 5, "Myotis (+2)": 4, "Myotis (+3)": 5, "Myotis (-1)": 2, "Myotis (-2)": 3, "Myotis (-3)": 5, "Apus (+1)": 4, "Apus (+2)": 2, "Apus (+3)": 1, "Apus (-1)": 1, "Apus (-2)": 0, "Apus (-3)": 0, "Peak Identity": "50.0%"}
-    ]
-    
-    df = pd.DataFrame(raw_data)
-    df.to_excel(out_excel, index=False)
-    print(f"[+] Publication-grade spreadsheet generated at:\n    {out_excel}")
+    out_txt = os.path.join(base_dir, "Myotis_Exclusive_Alignments_Notepad.txt")
+
+    files = {
+        "Myotis myotis": "Intergenic_Sequence_Myotis_myotis_PLS3_SLC6A14.txt",
+        "Rhinolophus affinis": "Intergenic_Sequence_Rhinolophus_affinis_PLS3_SLC6A14.txt",
+        "Rhinolophus sinicus": "Intergenic_Sequence_Rhinolophus_sinicus_PLS3_SLC6A14.txt",
+        "Rhinolophus ferrumequinum": "Intergenic_Sequence_PLS3_SLC6A14_Rhinolophus_ferrumequinum.txt",
+        "Rhinolophus Hipposideros": "Intergenic_Sequence_PLS3_SLC6A14_Rhinolophus_Hipposideros.txt"
+    }
+
+    myotis_bait = "MKGNFTPATINKNVTSSLDFGLGNISGNDSTFNCSHKPSDKHLDAIPVLYYIIFVIGFLVNTIVVTLFCCQKGPKKVSSIYIFNLAVADLLLLATLPLWASYYSYRYDWLFGPVMCKVFGSFLTLNMFASIFFITCMSVDRYQSVIYPFLSQRRNPWQASYIVPLVWCMACLSSLPTFYFRDVRTVEYLGVNACVMAFPPEKYAQWSAGIALMKNILGFIIPLIFIATCYFGIRKHLLKTNSYGKNRITRDQVLKMAAAVVLAFIICWLPFHVLTFLDALAWMGVITSCEVIAVIDLALPFAILLGFTNSCVNPFLYCFVGNRFQQKLRRVFRVPITWLQGKRESVSCRKSSSLREMETFVS"
+    window_size = 14
+
+    with open(out_txt, "w") as out:
+        out.write("=========================================================================\n")
+        out.write("RAW EXCLUSIVE MYOTIS PSEUDOGENE ALIGNMENTS FOR NOTEPAD\n")
+        out.write("=========================================================================\n\n")
+
+        for label, filename in files.items():
+            dna = clean_nucleotide(os.path.join(base_dir, filename))
+            if not dna: continue
+
+            rev_dna = get_reverse_complement(dna)
+            frames = {
+                "+1": translate_dna(dna, 0), "+2": translate_dna(dna, 1), "+3": translate_dna(dna, 2),
+                "-1": translate_dna(rev_dna, 0), "-2": translate_dna(rev_dna, 1), "-3": translate_dna(rev_dna, 2)
+            }
+
+            out.write(f"🧬 LINEAGE LOCUS: {label}\n")
+            out.write(f"-------------------------------------------------------------------------\n")
+
+            for f_name, f_seq in frames.items():
+                for p_idx in range(0, len(myotis_bait) - window_size + 1, 4):
+                    probe_frag = myotis_bait[p_idx:p_idx + window_size]
+
+                    for t_idx in range(0, len(f_seq) - window_size + 1, 2):
+                        target_frag = f_seq[t_idx:t_idx + window_size]
+
+                        matches = sum(1 for p, t in zip(probe_frag, target_frag) if p == t)
+                        identity = matches / window_size
+
+                        # Capture peak matches for bats (>=57%), functional matches for control (100%)
+                        cutoff = 1.0 if "myotis" in label.lower() else 0.57
+                        if identity >= cutoff:
+                            out.write(f"  [HIT] Frame {f_name} | Position {p_idx}-{p_idx+window_size} AA | Identity: {identity*100:.1f}%\n")
+                            out.write(f"    Bait String:   {probe_frag}\n")
+                            out.write(f"    Target Region: {target_frag}\n\n")
+            out.write("\n")
+
+    print(f"[+] Clean raw sequences written to: {out_txt}")
+    os.system(f'notepad.exe "{out_txt}"')
 
 if __name__ == "__main__":
     main()
 EOF
-python3 export_landscape_to_excel.py
+python3 get_myotis_raw_alignments.py
