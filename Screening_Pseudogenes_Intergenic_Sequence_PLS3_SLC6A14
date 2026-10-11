@@ -1,0 +1,160 @@
+(base) shazia@ZaffarHaque:/mnt/c/Users/shazi/OneDrive/AGTR2$ cat << 'EOF' > run_detailed_frame_matrix.py
+#!/usr/bin/env python3
+"""
+Script: run_detailed_frame_matrix.py
+Description: Exhaustively profiles every single frame separately (+1 to +3, -1 to -3)
+             across all 8 intergenic windows for both Myotis and Apus baits.
+"""
+
+import os
+import re
+import pandas as pd
+
+GENETIC_CODE = {
+    'ATA':'I', 'ATC':'I', 'ATT':'I', 'ATG':'M', 'ACA':'T', 'ACC':'T', 'ACG':'T', 'ACT':'T',
+    'AAC':'N', 'AAT':'N', 'AAA':'K', 'AAG':'K', 'AGC':'S', 'AGT':'S', 'AGA':'R', 'AGG':'R',
+    'CTA':'L', 'CTC':'L', 'CTG':'L', 'CTT':'L', 'CCA':'P', 'CCC':'P', 'CCG':'P', 'CCT':'P',
+    'CAC':'H', 'CAT':'H', 'CAA':'Q', 'CAG':'Q', 'CGA':'R', 'CGC':'R', 'CGG':'R', 'CGT':'R',
+    'GTA':'V', 'GTC':'V', 'GTG':'V', 'GTT':'V', 'GCA':'A', 'GCC':'A', 'GCG':'A', 'GCT':'A',
+    'GAC':'D', 'GAT':'D', 'GAA':'E', 'GAG':'E', 'GGA':'G', 'GGC':'G', 'GGG':'G', 'GGT':'G',
+    'TCA':'S', 'TCC':'S', 'TCG':'S', 'TCT':'S', 'TTC':'F', 'TTT':'F', 'TTA':'L', 'TTG':'L',
+    'TAC':'Y', 'TAT':'Y', 'TAA':'*', 'TAG':'*', 'TGA':'*'
+}
+
+def clean_nucleotide(file_path):
+    if not os.path.exists(file_path):
+        return ""
+    with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+        content = f.read()
+    return re.sub(r'[\d\s\>a-z]', '', content).upper()
+
+def get_reverse_complement(seq):
+    comp = {'A': 'T', 'T': 'A', 'G': 'C', 'C': 'G', 'N': 'N'}
+    return "".join(comp.get(base, base) for base in reversed(seq))
+
+def translate_dna(seq, frame_offset):
+    protein = []
+    for i in range(frame_offset, len(seq) - 2, 3):
+        codon = seq[i:i+3]
+        protein.append(GENETIC_CODE.get(codon, 'X'))
+    return "".join(protein)
+
+def screen_sequence(probe_seq, frame_seq, window_size=14, min_identity=0.50):
+    hits_count = 0
+    max_id = 0.0
+    probe_len = len(probe_seq)
+    flen = len(frame_seq)
+
+    for p_idx in range(0, probe_len - window_size + 1, 4):
+        probe_frag = probe_seq[p_idx:p_idx + window_size]
+
+        for t_idx in range(0, flen - window_size + 1, 2):
+            target_frag = frame_seq[t_idx:t_idx + window_size]
+
+            matches = sum(1 for p, t in zip(probe_frag, target_frag) if p == t)
+            identity = matches / window_size
+
+            if identity >= min_identity:
+                hits_count += 1
+                if identity > max_id:
+                    max_id = identity
+    return hits_count, max_id
+
+def main():
+    base_dir = "/mnt/c/Users/shazi/OneDrive/AGTR2"
+
+    files = {
+        "Myotis myotis": "Intergenic_Sequence_Myotis_myotis_PLS3_SLC6A14.txt",
+        "Rhinolophus affinis": "Intergenic_Sequence_Rhinolophus_affinis_PLS3_SLC6A14.txt",
+        "Rhinolophus sinicus": "Intergenic_Sequence_Rhinolophus_sinicus_PLS3_SLC6A14.txt",
+        "Rhinolophus ferrumequinum": "Intergenic_Sequence_PLS3_SLC6A14_Rhinolophus_ferrumequinum.txt",
+        "Rhinolophus Hipposideros": "Intergenic_Sequence_PLS3_SLC6A14_Rhinolophus_Hipposideros.txt",
+        "Selasphorus platycercus": "Intergenic_Sequence_Selasphorus_platycercus_hummingbird_PLS3_SLC6A14.txt",
+        "Apus apus (Control Locus)": "INTERGENIC_SEQUENCE_Apu_Apu_Swiftbird_SLC6A14_PLS3.txt",
+        "Calypte anna": "INTERGENIC SEQUENCES ANA CALYPTE_PLS3_SLC6A14.txt"
+    }
+
+    myotis_bait = "MKGNFTPATINKNVTSSLDFGLGNISGNDSTFNCSHKPSDKHLDAIPVLYYIIFVIGFLVNTIVVTLFCCQKGPKKVSSIYIFNLAVADLLLLATLPLWASYYSYRYDWLFGPVMCKVFGSFLTLNMFASIFFITCMSVDRYQSVIYPFLSQRRNPWQASYIVPLVWCMACLSSLPTFYFRDVRTVEYLGVNACVMAFPPEKYAQWSAGIALMKNILGFIIPLIFIATCYFGIRKHLLKTNSYGKNRITRDQVLKMAAAVVLAFIICWLPFHVLTFLDALAWMGVITSCEVIAVIDLALPFAILLGFTNSCVNPFLYCFVGNRFQQKLRRVFRVPITWLQGKRESVSCRKSSSLREMETFVS"
+    apus_bait = "MQSNYSLLVTTRETLQVLYTALTNSSAALHPPPPCPLTSSDYHFSLIPAIFSVVFVLGLVGNSVVVLVLSCHSGPKTVANIYIFNLAVADLLCLATLPFWATYYSQGYNWLFGSLMCKISSSVLCLNMFASIFFITCMSVDRYHAIVHPLRSQRRTSQQAYFIAVVVWGLACLSSLPTFYFREAHYVESLGVNACIMAFPHESYEKWSVATAFLKNALGFFIPLTVITTCYIWIRRHLLKAQKFGKTKQKRDKVLKLVAAVVVAFLISWFPFHILTFLDALAHMNIINNCGVTGLIDTALPFGICLAFTNSCTNPLLYCFIGNQFQEKLHRLFKRRVHQFNSRGENSSLRKGSCFRDAETPVGREEGPESLL"
+
+    detailed_rows = []
+
+    print("[*] Slicing and screening all individual frames...")
+
+    for label, filename in files.items():
+        file_path = os.path.join(base_dir, filename)
+        dna = clean_nucleotide(file_path)
+
+        if not dna:
+            print(f"[!] File not found or empty: {filename}")
+            continue
+
+        rev_dna = get_reverse_complement(dna)
+
+        # Generate each individual frame translation string
+        f_strings = {
+            "+1": translate_dna(dna, 0),
+            "+2": translate_dna(dna, 1),
+            "+3": translate_dna(dna, 2),
+            "-1": translate_dna(rev_dna, 0),
+            "-2": translate_dna(rev_dna, 1),
+            "-3": translate_dna(rev_dna, 2),
+        }
+
+        # Query metrics dictionary for this lineage
+        row_metrics = {"Species Locus Locus": label, "Window Size": len(dna)}
+        peak_id = 0.0
+
+        for f_name, f_seq in f_strings.items():
+            m_hits, m_max = screen_sequence(myotis_bait, f_seq)
+            a_hits, a_max = screen_sequence(apus_bait, f_seq)
+
+            # Map values precisely to their specific frame columns
+            row_metrics[f"Myotis ({f_name})"] = m_hits
+            row_metrics[f"Apus ({f_name})"] = a_hits
+
+            if m_max > peak_id: peak_id = m_max
+            if a_max > peak_id: peak_id = a_max
+
+        row_metrics["Peak Identity"] = f"{peak_id*100:.1f}%"
+        detailed_rows.append(row_metrics)
+
+    # Convert to Dataframe and export
+    df = pd.DataFrame(detailed_rows)
+
+    # Reorder columns logically to cleanly separate Myotis frames and Apus frames
+    ordered_cols = ["Species Locus Locus", "Window Size",
+                    "Myotis (+1)", "Myotis (+2)", "Myotis (+3)", "Myotis (-1)", "Myotis (-2)", "Myotis (-3)",
+                    "Apus (+1)", "Apus (+2)", "Apus (+3)", "Apus (-1)", "Apus (-2)", "Apus (-3)",
+                    "Peak Identity"]
+
+    df = df[ordered_cols]
+    out_csv = os.path.join(base_dir, "Detailed_Frame_AGTR2_Screen.csv")
+    df.to_csv(out_csv, index=False)
+
+    print(f"\n{'='*110}\n[MASTER LOG] PER-FRAME BREAKDOWN OF THE SEARCH SPECTRUM\n{'='*110}")
+    pd.set_option('display.max_columns', None)
+    pd.set_option('display.width', 1000)
+    print(df.to_string(index=False))
+    print(f"\n[+] Raw dataset successfully written to: {out_csv}")
+
+if __name__ == "__main__":
+    main()
+EOF
+python3 run_detailed_frame_matrix.py
+[*] Slicing and screening all individual frames...
+
+==============================================================================================================
+[MASTER LOG] PER-FRAME BREAKDOWN OF THE SEARCH SPECTRUM
+==============================================================================================================
+      Species Locus Locus  Window Size  Myotis (+1)  Myotis (+2)  Myotis (+3)  Myotis (-1)  Myotis (-2)  Myotis (-3)  Apus (+1)  Apus (+2)  Apus (+3)  Apus (-1)  Apus (-2)  Apus (-3) Peak Identity
+            Myotis myotis       586642           28           36           36          119           31           20         37         44         34         48         47         31        100.0%
+      Rhinolophus affinis       361841           20           29           11           14           20           15         24         32         43         39         31         34         64.3%
+      Rhinolophus sinicus       361841           20           29           11           14           20           15         24         32         43         39         31         34         64.3%
+Rhinolophus ferrumequinum       350105           20           17           23           18           22           13         33         34         31         33         35         39         64.3%
+ Rhinolophus Hipposideros       406506           14           28           12           26           26           22         38         35         31         61         41         44         64.3%
+  Selasphorus platycercus        34655            5            2            2            2            2            2          0          2          0          1          2          2         50.0%
+Apus apus (Control Locus)        48364            2            6            1            4            1           54          4          4          0          2          5          0         92.9%
+             Calypte anna        39428            5            4            5            2            3            5          4          2          1          1          0          0         50.0%
+
+[+] Raw dataset successfully written to: /mnt/c/Users/shazi/OneDrive/AGTR2/Detailed_Frame_AGTR2_Screen.csv
