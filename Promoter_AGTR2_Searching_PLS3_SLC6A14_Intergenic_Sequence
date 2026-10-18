@@ -1,0 +1,138 @@
+cat << 'EOF' > screen.py
+import os
+import subprocess
+
+target_files = [
+    "/mnt/c/Users/shazi/OneDrive/AGTR2/INTERGENIC_SEQUENCE_Apu_Apu_Swiftbird_SLC6A14_PLS3.txt",
+    "/mnt/c/Users/shazi/OneDrive/AGTR2/Intergenic_Sequence_PLS3_SLC6A14_Rhinolophus_Hipposideros.txt",
+    "/mnt/c/Users/shazi/OneDrive/AGTR2/Intergenic_Sequence_PLS3_SLC6A14_Rhinolophus_ferrumequinum.txt",
+    "/mnt/c/Users/shazi/OneDrive/AGTR2/INTERGENIC SEQUENCES ANA CALYPTE RHINOLOPHUS.txt",
+    "/mnt/c/Users/shazi/OneDrive/AGTR2/Intergenic_Sequence_Myotis_myotis_PLS3_SLC6A14.txt",
+    "/mnt/c/Users/shazi/OneDrive/AGTR2/Intergenic_Sequence_Rhinolophus_affinis_PLS3_SLC6A14.txt",
+    "/mnt/c/Users/shazi/OneDrive/AGTR2/Intergenic_Sequence_Rhinolophus_sinicus_PLS3_SLC6A14.txt",
+    "/mnt/c/Users/shazi/OneDrive/AGTR2/Intergenic_Sequence_Selasphorus_platycercus_hummingbird_PLS3_SLC6A14.txt"
+]
+
+# Hardcoded Query Sequences
+queries = {
+    "apus_query.fa": (
+        "TCTCTTCTGGTTCACCTCACTGTAAGCAGAGCTGGTTATGGAGCCTCTGA"
+        "TGCCTGTTGCCTCTGGTGTGCTACCAGGTCCAAGAGCAAGGGCAGGCACC"
+        "AGGATTCCCCCAAGCCACCACAACTGGATACCCACCCACACTGCAAGGCT"
+        "GCAGTGTTCAAAGGTGTTTAAAGAATGGGATGAGCTTGAGTCTGGCCCTG"
+        "GCTGGTGATGAGCTGGGGCAAAGGGACATGTCACTGACAGGGACTTCTGT"
+        "GGTTGCTTTCCACGTGACATGTGCAGCAATGCCTGGAGAGCACAGCACAC"
+        "ATGTCCACAGTAGATGGGCCACTGCTGCAGAGGACATCACGCTCATGATA"
+        "TCAGGGCAAAATATTGAAGGAGATGCTTATTTTGGCCTTGTGTTTATCCC"
+        "CCAGCAGCCCTCTTGCAGCTTCTTCCATGGAGCCGAGACTGGGGCCAGGT"
+        "GGACCACCAGGAAGAAGCAGATGTAAGAACTCAGTTCTGTGTGAGTGGGA"
+        "AGTAGCTGTGAGCCTGCAGCCTCGTCACCTGCTTGCTTTGGTCCTGTGCT"
+        "ACCCCAGTGCAGACTCAGAGCCTCTGCTCTGCCACGTGGATTTGTCCAGC"
+        "TGCCCCCCTCAGTTCCAGCAGTGTCCCCCCACAGGGACTTGAGCAGTGGC"
+        "TTTCCCCTCCTGCTGATGGGGAGTCAGGATCAGCCCCCTCACACAGGCAA"
+        "TACTGGTGTGAATGCTGGGATGTTCCTCCAGTCTCTGTCTGTGTGTGTTC"
+        "ACGTTGTGGTCAGTCCTGCCAGGACTAACAGCCTATTCTCCTCTCAAATG"
+        "GTTAGCAAGTGCTGGGGCTCCAGGGAGTGCATGGGAATACCCCTGCCCT"
+        "CAGGGATCCATGGATCCTTTCACAAAGGATCACCTGGGGGACAGAAGAGG"
+        "TTGCATGTGGGTGTATCCTCCTGGCCCAAGAGCTGCAGGAGAAAACCCA"
+        "CAGAGATATTTGTGTGGATTTCCTTTTTCTTTCTCTCTTTTTTTTTTTCT"
+    ),
+    "myotis_query.fa": (
+        "GGTTTAAGCACTTTAAATACATTAGCTTGTTTAATTTTCCTGACTCTATG"
+        "ATGTAGGTAATTAACATCATCCCCATTTATCAGATGAGAAAGCTGAGACA"
+        "CAAAAGACGGAAATAACTTGGCCAAAGTCATAGAAGTAGTAAGTGGTATA"
+        "GCTGAGCTTGTGAAACCAGGCAGTTGGATCCAAGGTCATTTACATACCAG"
+        "TATGCTACATTGCCTCTCTATTAAATTACCGAGCATAAAGCATCTAGCAC"
+        "AGTGTTTGGCACATAGTTTTTCAACTAGTATTATCACTACCATCACCTTT"
+        "TCTTTCTTCCTTCCTTTTGTTACTCTTGCTTCTCTTGGGCTGATCTTGTA"
+        "AGGTTGATCCCTGCAGCGCCCACAAGAAGAGATAACAATTCTATCTAGGC"
+        "TGCAGTTGCTGCCTTTCTCCTTCTTCACCTTGTGCACTTTGTATTTAAAC"
+        "CGCAAATATGACAGAGACCTATGAAAGGGAACACCAAATGTTAATACCTC"
+        "TTTTCCAAAACATGAAAATTATATCCCTCCTATCACCCCCGCTCCAGCAA"
+        "CAAGCCAACAGAAATTGTTTAAAGCAAGGGAGAAATTTTAGAAATTCTAA"
+        "ACTTCAAGTCACATTGCTACTGTTCTTTAATAAACAAGGGTAAAGATTTT"
+        "TAAAAGTAATGAAGGTTACAAAGAACATTGGGGGACAATGACACTGCTAC"
+        "TAGAATAAATTCCCTAGTCTCCACTCCTTAATGCGTTTTAGAATGCCAGT"
+        "ATCAGGGAAGAAGAGAAAATTCTACAAATAATTATATTCTTCTTTTCAAG"
+        "TAAGTCACTGACTTCAAAATTCTCTAACACATTTGTGGAAACTTCATTTT"
+        "TTTTGTTTGAGATTTATTTGAATGAGCTGTTATGATTGGAGACAGTGAGA"
+        "ATTTCAGATTAATGTTTTGCAGCCAAAAAAAAAAGCTCTGGAAAGCTGGC"
+        "AAGTGTTCATAAGTCAGCCCTAGAATTATGTAGGTTGAAGGCTCCCAGTG"
+        "G"
+    )
+}
+
+# Write hardcoded sequences to target query FASTA files
+for q_name, q_seq in queries.items():
+    with open(q_name, 'w') as f:
+        f.write(f">{q_name.replace('.fa', '')}\n{q_seq}\n")
+
+print("\nSpecies/File | Query | Alignment Length | Bit-Score | E-value | % Identity | Status")
+print("-" * 115)
+
+for path in target_files:
+    if not os.path.exists(path):
+        print(f"{os.path.basename(path)[:35]:<35} | ALL            | File Not Found on Disk")
+        continue
+
+    file_token = os.path.basename(path).replace(".txt", "")
+
+    with open(path, 'r', encoding='utf-8', errors='ignore') as f:
+        content = f.read().strip()
+
+    content_lines = [line.strip() for line in content.splitlines() if line.strip()]
+    if not content_lines:
+        print(f"{file_token[:35]:<35} | ALL            | ERROR: File Empty")
+        continue
+
+    # Enforce FASTA structure on the fly
+    cleaned_fasta_path = "temp_cleaned_subject.fa"
+    with open(cleaned_fasta_path, 'w') as f:
+        if not content_lines[0].startswith('>'):
+            f.write(f">{file_token}\n")
+        f.write("\n".join(content_lines) + "\n")
+
+    # Clean intermediate databases safely
+    for suffix in ['.ndb', '.nhr', '.nin', '.not', '.nsq', '.ntf', '.nto']:
+        try: os.remove(f"temp_subj_db{suffix}")
+        except FileNotFoundError: pass
+
+    # Build DB using the cleaned subject fasta file
+    db_cmd = ["makeblastdb", "-in", cleaned_fasta_path, "-dbtype", "nucl", "-out", "temp_subj_db", "-logfile", "/dev/null"]
+    db_res = subprocess.run(db_cmd, shell=False, capture_output=True, text=True)
+
+    if db_res.returncode != 0:
+        print(f"{file_token[:35]:<35} | ALL            | ERROR: makeblastdb failed")
+        if os.path.exists(cleaned_fasta_path): os.remove(cleaned_fasta_path)
+        continue
+
+    for q_file in queries.keys():
+        # Run BLAST natively using list parameters
+        blast_cmd = ["blastn", "-query", q_file, "-db", "temp_subj_db", "-outfmt", "6 length score evalue pident", "-word_size", "11"]
+        res = subprocess.run(blast_cmd, shell=False, capture_output=True, text=True)
+
+        output_lines = res.stdout.strip().split('\n')
+        if output_lines and output_lines[0]:
+            metrics = output_lines[0].split('\t')
+            length, score, evalue, pident = metrics[0], metrics[1], metrics[2], metrics[3]
+            pident_val = float(pident)
+
+            if pident_val >= 80.0 and int(length) > 100:
+                status = "Conserved Ortholog Retained (Tier 1)"
+            else:
+                status = "Promoter Collapsed / Remnants Only (Tier 2)"
+
+            print(f"{file_token[:35]:<35} | {q_file:<15} | {length:<16} | {score:<9} | {evalue:<7} | {pident_val:<10.1f}% | {status}")
+        else:
+            print(f"{file_token[:35]:<35} | {q_file:<15} | 0                | 0.0       | N/A     | 0.0%       | Complete Sequence Deletion")
+
+    if os.path.exists(cleaned_fasta_path):
+        os.remove(cleaned_fasta_path)
+
+# Cleanup all database artifacts and query files
+for suffix in ['.ndb', '.nhr', '.nin', '.not', '.nsq', '.ntf', '.nto']:
+    try: os.remove(f"temp_subj_db{suffix}")
+    except FileNotFoundError: pass
+for q_file in queries.keys():
+    if os.path.exists(q_file): os.remove(q_file)
+EOF
