@@ -191,3 +191,66 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+
+
+    To extract the sequence from Hipposideros larvatus  that matched:
+
+    
+    #!/usr/bin/env python
+import os
+import zipfile
+import subprocess
+
+zip_path = "/mnt/c/Users/shazi/Downloads/Hipposideros_larvatus_ncbi_dataset.zip"
+query_seq = (
+    "GGTTTAAGCACTTTAAATACATTAGCTTGTTTAATTTTCCTGACTCTATGATGTAGGTAA"
+    "TTAACATCATCCCCATTTATCAGATGAGAAAGCTGAGACACAAAAGACGGAAATAACTTG"
+    "GCCAAAGTCATAGAAGTAGTAAGTGGTATAGCTGAGCTTGTGAAACCAGGCAGTTGGATC"
+    "CAAGGTCATTTACATACCAGTATGCTACATTGCCTCTCTATTAAATTACCGAGCATAAAG"
+    "CATCTAGCACAGTGTTTGGCACATAGTTTTTCAACTAGTATTATCACTACCATCACCTTT"
+    "TCTTTCTTCCTTCCTTTTGTTACTCTTGCTTCTCTTGGGCTGATCTTGTAAGGTTGATCC"
+    "CTGCAGCGCCCACAAGAAGAGATAACAATTCTATCTAGGCTGCAGTTGCTGCCTTTCTCC"
+    "TTCTTCACCTTGTGCACTTTGTATTTAAACCGCAAATATGACAGAGACCTATGAAAGGGA"
+    "ACACCAAATGTTAATACCTCTTTTCCAAAACATGAAAATTATATCCCTCCTATCACCCCC"
+    "GCTCCAGCAACAAGCCAACAGAAATTGTTTAAAGCAAGGGAGAAATTTTAGAAATTCTAA"
+    "ACTTCAAGTCACATTGCTACTGTTCTTTAATAAACAAGGGTAAAGATTTTTAAAAGTAAT"
+    "GAAGGTTACAAAGAACATTGGGGGACAATGACACTGCTACTAGAATAAATTCCCTAGTCT"
+    "CCACTCCTTAATGCGTTTTAGAATGCCAGTATCAGGGAAGAAGAGAAAATTCTACAAATA"
+    "ATTATATTCTTCTTTTCAAGTAAGTCACTGACTTCAAAATTCTCTAACACATTTGTGGAA"
+    "ACTTCATTTTTTTTGTTTGAGATTTATTTGAATGAGCTGTTATGATTGGAGACAGTGAGA"
+    "ATTTCAGATTAATGTTTTGCAGCCAAAAAAAAAAGCTCTGGAAAGCTGGCAAGTGTTCAT"
+    "AAGTCAGCCCTAGAATTATGTAGGTTGAAGGCTCCCAGTGG"
+)
+
+# Write the query out temporarily
+with open("temp_query.fa", "w") as f:
+    f.write(f">MYOTIS_MYOTIS_AGTR2_PROMOTER\n{query_seq}\n")
+
+print("Extracting genome database file...")
+with zipfile.ZipFile(zip_path, 'r') as archive:
+    largest_file = max([i for i in archive.infolist() if i.filename.endswith(('.fna', '.fa', '.fasta'))], key=lambda x: x.file_size)
+    with archive.open(largest_file.filename) as src, open("temp_genome.fna", "wb") as dst:
+        dst.write(src.read())
+
+print("Building temporary local database...")
+subprocess.run(["makeblastdb", "-in", "temp_genome.fna", "-dbtype", "nucl", "-out", "temp_db"], stdout=subprocess.DEVNULL)
+
+# We ask BLAST to pull the matching subject sequence directly (sseq)
+print("\n=== HIPPOSIDEROS MATCHING RETAINED PROMOTER SEQUENCE ===")
+cmd = ["blastn", "-query", "temp_query.fa", "-db", "temp_db", "-outfmt", "6 sseqid sstart send sseq", "-max_target_seqs", "1"]
+res = subprocess.run(cmd, text=True, capture_output=True)
+
+if res.stdout.strip():
+    parts = res.stdout.strip().split('\t')
+    print(f"Chromosome/Scaffold ID: {parts[0]}")
+    print(f"Genomic Coordinates: {parts[1]} to {parts[2]}")
+    print("\n>Hipposideros_larvatus_retained_promoter")
+    print(parts[3])
+else:
+    print("No matching alignment sequence found.")
+
+# Clean up local workspace footprints
+for f in ["temp_query.fa", "temp_genome.fna", "temp_db.nhr", "temp_db.nin", "temp_db.nsq"]:
+    if os.path.exists(f): os.remove(f)
