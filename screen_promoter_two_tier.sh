@@ -1,157 +1,193 @@
-bash
-#!/usr/bin/env bash
-# ==============================================================================
-# Script:      screen_promoter_two_tier.sh
-# Description: Two-Tiered High-Density Fallback Screening Pipeline for Cross-
-#              Species Comparative Cis-Regulatory Element Analysis.
-# Author:      S. Haque et al.
-# License:     MIT License
-# GitHub:      https://github.com
-# ==============================================================================
+python
+#!/usr/bin/env python
+import os
+import sys
+import hashlib
+import zipfile
+import shutil
+import tempfile
+import subprocess
 
-set -eo pipefail
+# ----------------- CONSTANTS & EMBEDDED QUERIES -----------------
+QUERY_MYOTIS_SEQ = (
+    "GGTTTAAGCACTTTAAATACATTAGCTTGTTTAATTTTCCTGACTCTATGATGTAGGTAA"
+    "TTAACATCATCCCCATTTATCAGATGAGAAAGCTGAGACACAAAAGACGGAAATAACTTG"
+    "GCCAAAGTCATAGAAGTAGTAAGTGGTATAGCTGAGCTTGTGAAACCAGGCAGTTGGATC"
+    "CAAGGTCATTTACATACCAGTATGCTACATTGCCTCTCTATTAAATTACCGAGCATAAAG"
+    "CATCTAGCACAGTGTTTGGCACATAGTTTTTCAACTAGTATTATCACTACCATCACCTTT"
+    "TCTTTCTTCCTTCCTTTTGTTACTCTTGCTTCTCTTGGGCTGATCTTGTAAGGTTGATCC"
+    "CTGCAGCGCCCACAAGAAGAGATAACAATTCTATCTAGGCTGCAGTTGCTGCCTTTCTCC"
+    "TTCTTCACCTTGTGCACTTTGTATTTAAACCGCAAATATGACAGAGACCTATGAAAGGGA"
+    "ACACCAAATGTTAATACCTCTTTTCCAAAACATGAAAATTATATCCCTCCTATCACCCCC"
+    "GCTCCAGCAACAAGCCAACAGAAATTGTTTAAAGCAAGGGAGAAATTTTAGAAATTCTAA"
+    "ACTTCAAGTCACATTGCTACTGTTCTTTAATAAACAAGGGTAAAGATTTTTAAAAGTAAT"
+    "GAAGGTTACAAAGAACATTGGGGGACAATGACACTGCTACTAGAATAAATTCCCTAGTCT"
+    "CCACTCCTTAATGCGTTTTAGAATGCCAGTATCAGGGAAGAAGAGAAAATTCTACAAATA"
+    "ATTATATTCTTCTTTTCAAGTAAGTCACTGACTTCAAAATTCTCTAACACATTTGTGGAA"
+    "ACTTCATTTTTTTTGTTTGAGATTTATTTGAATGAGCTGTTATGATTGGAGACAGTGAGA"
+    "ATTTCAGATTAATGTTTTGCAGCCAAAAAAAAAAGCTCTGGAAAGCTGGCAAGTGTTCAT"
+    "AAGTCAGCCCTAGAATTATGTAGGTTGAAGGCTCCCAGTGG"
+)
 
-# --- Usage Validation ---
-usage() {
-    echo "Usage: $0 -g <genome_directory> -q <query_promoter.fa> -o <output_summary.txt>"
-    echo "  -g : Directory containing genome files (.zip from NCBI, .fa, .fna, .fa.gz)"
-    echo "  -q : Path to the single query promoter FASTA file"
-    echo "  -o : Output path destination for the generated text results ledger"
-    exit 1
-}
+QUERY_APUS_SEQ = (
+    "TCTCTTCTGGTTCACCTCACTGTAAGCAGAGCTGGTTATGGAGCCTCTGATGCCTGTTGC"
+    "CTCTGGTGTGCTACCAGGTCCAAGAGCAAGGGCAGGCACCAGGATTCCCCCAAGCCACCA"
+    "CAACTGGATACCCACCCACACTGCAAGGCTGCAGTGTTCAAAGGTGTTTAAAGAATGGGA"
+    "TGAGCTTGAGTCTGGCCCTGGCTGGTGATGAGCTGGGGCAAAGGGACATGTCACTGACAG"
+    "GGACTTCTGTGGTTGCTTTCCACGTGACATGTGCAGCAATGCCTGGAGAGCACAGCACAC"
+    "ATGTCCACAGTAGATGGGCCACTGCTGCAGAGGACATCACGCTCATGATATCAGGGCAAA"
+    "ATATTGAAGGAGATGCTTATTTTGGCCTTGTGTTTATCCCCCAGCAGCCCTCTTGCAGCT"
+    "TCTTCCATGGAGCCGAGACTGGGGCCAGGTGGACCACCAGGAAGAAGCAGATGTAAGAAC"
+    "TCAGTTCTGTGTGAGTGGGAAGTAGCTGTGAGCCTGCAGCCTCGTCACCTGCTTGCTTTG"
+    "GTCCTGTGCTACCCCAGTGCAGACTCAGAGCCTCTGCTCTGCCACGTGGATTTGTCCAGC"
+    "TGCCCCCCTCAGTTCCAGCAGTGTCCCCCCACAGGGACTTGAGCAGTGGCTTTCCCCTCC"
+    "TGCTGATGGGGAGTCAGGATCAGCCCCCTCACACAGGCAATACTGGTGTGAATGCTGGGA"
+    "TGTTCCTCCAGTCTCTGTCTGTGTGTGTTCACGTTGTGGTCAGTCCTGCCAGGACTAACA"
+    "GCCTATTCTCCTCTCAAATGTGTTAGCAAGTGCTGGGGCTCCAGGGAGTGCATGGGAATA"
+    "CCCCTGCCCTCAGGGATCCATGGATCCTTTCACAAAGGATCACCTGGGGGACAGAAGAGG"
+    "GTTGCATGTGGGTGTATCCTCCTGGCCCAAGAGCTGCAGGAGAAAACCCACAGAGATATT"
+    "TGTGTGGATTTCCTTTTTCTTTCTCTCTTTTTTTTTTTCT"
+)
 
-while getopts "g:q:o:h" opt; do
-    case "$opt" in
-        g) SOURCE_DIR="$OPTARG" ;;
-        q) QUERY_FA="$OPTARG" ;;
-        o) SUMMARY_LOG="$OPTARG" ;;
-        h|*) usage ;;
-    esac
-done
+# ----------------- INPUT DATA CONFIGURATION (WSL Mapped) -----------------
+INPUT_FILES = [
+    "/mnt/c/Users/shazi/Downloads/Rhinolophus_ferrumequinum_ncbi_dataset.zip",
+    "/mnt/c/Users/shazi/Downloads/Rhinolophus_hipposideros_ncbi_dataset (1).zip",
+    "/mnt/c/Users/shazi/Downloads/Rhinolophus_affinis_ncbi_dataset.zip",
+    "/mnt/c/Users/shazi/Downloads/Rhinolophus_sinicus_ncbi_dataset.zip",
+    "/mnt/c/Users/shazi/OneDrive/Desktop/BATCH GENOMES/Group 5/Hipposideros_larvatus_ncbi_dataset.zip",
+    "/mnt/c/Users/shazi/Downloads/Hipposideros_armiger_ncbi_dataset.zip",
+    "/mnt/c/Users/shazi/Downloads/Hipposideros_larvatus_ncbi_dataset.zip",
+    "/mnt/c/Users/shazi/OneDrive/Desktop/BATCH GENOMES/Group7/Myotis_myotis_ncbi_dataset.zip",
+    "/mnt/c/Users/shazi/Downloads/Calypte_anna_ncbi_dataset (2).zip",
+    "/mnt/c/Users/shazi/Downloads/Apus_apus_ncbi_dataset.zip",
+    "/mnt/c/Users/shazi/Downloads/Selasphorus_platycercus_ncbi_dataset.zip"
+]
 
-if [ -z "$SOURCE_DIR" ] || [ -z "$QUERY_FA" ] || [ -z "$SUMMARY_LOG" ]; then
-    usage
-fi
+OUTPUT_TSV = "promoter_screen_output.tsv"
 
-# --- Environment & Dependency Checks ---
-echo "Checking pipeline software dependencies..."
-for cmd in makeblastdb blastn unzip gunzip nproc; do
-    if ! command -v "$cmd" &> /dev/null; then
-        echo "❌ Critical Error: Dependency '$cmd' is missing from host environment paths." >&2
-        exit 1
-    fi
-done
+def get_md5(file_path):
+    hasher = hashlib.md5()
+    with open(file_path, 'rb') as f:
+        for chunk in iter(lambda: f.read(4096), b''):
+            hasher.update(chunk)
+    return hasher.hexdigest()
 
-# --- Resource Allocation (Multi-Thread Acceleration Metrics) ---
-AVAILABLE_CORES=$(nproc)
-if [ "$AVAILABLE_CORES" -gt 2 ]; then
-    THREADS=$((AVAILABLE_CORES - 2))
-else
-    THREADS=1
-fi
+def clean_species_name(filename):
+    name = filename.replace("_ncbi_dataset", "").replace(".zip", "")
+    if " (" in name:
+        name = name.split(" (")[0]
+    return name.strip().replace(" ", "_")
 
-# --- Workspace Sandbox Scaffolding ---
-SCRATCH_ROOT="/tmp/promoter_screening_scratch_$$"
-mkdir -p "$SCRATCH_ROOT"
-trap 'rm -rf "$SCRATCH_ROOT"' EXIT
+def classify_hit(alignment_len, pident, qlen):
+    if not alignment_len or alignment_len == 0:
+        return "NO_HIT"
+    elif (alignment_len * 100 >= 60 * qlen) and (pident >= 80.0):
+        return "RETAINED_CANDIDATE"
+    elif (alignment_len * 100 >= 30 * qlen):
+        return "PARTIAL_FRAGMENT"
+    else:
+        return "SHORT_REMNANT"
 
-echo "=========================================================================="
-echo "LAUNCHING HIGH-DENSITY TWO-TIERED TARGETED SEQUENCE SCREENING ENGINE      "
-echo "Active Cores Detected: $AVAILABLE_CORES  | Parallel Processing Allocation: $THREADS Cores"
-echo "=========================================================================="
+def extract_largest_fasta_from_zip(zip_path, extract_to):
+    largest_file = None
+    largest_size = 0
+    with zipfile.ZipFile(zip_path, 'r') as archive:
+        for info in archive.infolist():
+            if info.filename.endswith(('.fna', '.fa', '.fasta')) and info.file_size > largest_size:
+                largest_size = info.file_size
+                largest_file = info.filename
+        if largest_file:
+            base_name = os.path.basename(largest_file)
+            dest_path = os.path.join(extract_to, base_name)
+            with archive.open(largest_file) as source, open(dest_path, 'wb') as target:
+                shutil.copyfileobj(source, target)
+            return dest_path
+    return None
 
-# Initialize text ledger headers
-echo "Species/File | Tier Executed | Max Alignment Length | Top E-value | Status" > "$SUMMARY_LOG"
-echo "------------------------------------------------------------------------" >> "$SUMMARY_LOG"
+def run_blast_pass(query_path, db_path, task="blastn"):
+    cmd = [
+        "blastn", "-query", query_path, "-db", db_path,
+        "-task", task, "-outfmt", "6 sseqid length pident evalue sstart send",
+        "-max_target_seqs", "1"
+    ]
+    try:
+        res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True)
+        lines = res.stdout.strip().split('\n')
+        if lines and lines[0]:
+            parts = lines[0].split('\t')
+            return {
+                "sseqid": parts[0], "length": int(parts[1]), "pident": float(parts[2]),
+                "evalue": parts[3], "region": f"{parts[4]}-{parts[5]}"
+            }
+    except subprocess.CalledProcessError:
+        pass
+    return None
 
-# --- Main Iterative Processing Loop ---
-for file_path in "$SOURCE_DIR"/*; do
-    [ -f "$file_path" ] || continue
+def main():
+    print("Starting Two-Tiered Promoter Screening Pipeline...")
+    seen_hashes = {}
+    
+    with tempfile.TemporaryDirectory() as scratch_dir:
+        q_myotis_path = os.path.join(scratch_dir, "query_myotis.fa")
+        q_apus_path = os.path.join(scratch_dir, "query_apus.fa")
+        
+        with open(q_myotis_path, 'w') as f:
+            f.write(f">MYOTIS_MYOTIS_AGTR2_PROMOTER\n{QUERY_MYOTIS_SEQ}\n")
+        with open(q_apus_path, 'w') as f:
+            f.write(f">APUS_APUS_AGTR2_PROMOTER\n{QUERY_APUS_SEQ}\n")
+            
+        len_myotis = len(QUERY_MYOTIS_SEQ)
+        len_apus = len(QUERY_APUS_SEQ)
+        
+        queries = [
+            {"name": "Myotis promoter", "path": q_myotis_path, "len": len_myotis},
+            {"name": "Apus promoter", "path": q_apus_path, "len": len_apus}
+        ]
 
-    raw_filename=$(basename "$file_path")
-    # Normalize species name strings for publication output matrices
-    species_token=$(echo "$raw_filename" | sed 's/_ncbi_dataset//g' | sed 's/\.zip//g' | sed 's/\.fna//g' | sed 's/\.fa//g' | sed 's/\.fasta//g' | sed 's/ (.*)//g' | tr ' ' '_')
+        with open(OUTPUT_TSV, 'w') as out_tsv:
+            out_tsv.write("Species\tSource file\tQuery\tBest length (bp)\tMax length (bp)\t% ident\tE-value\tSubject region\tClassification\n")
 
-    echo "Processing target dataset: $species_token..."
-    WORKING_FA=""
-    TEMP_EXTRACT="${SCRATCH_ROOT}/${species_token}_extracted"
+            for file_path in INPUT_FILES:
+                if not os.path.exists(file_path):
+                    print(f"⚠️ Warning: File path does not exist, skipping: {file_path}")
+                    continue
+                
+                raw_filename = os.path.basename(file_path)
+                file_hash = get_md5(file_path)
+                
+                if file_hash in seen_hashes:
+                    print(f"🛑 SKIP (byte-identical duplicate of {seen_hashes[file_hash]}): {raw_filename}")
+                    continue
+                seen_hashes[file_hash] = raw_filename
+                
+                species_token = clean_species_name(raw_filename)
+                print(f"🧬 Processing: {species_token} ({raw_filename})")
+                
+                genome_fa = extract_largest_fasta_from_zip(file_path, scratch_dir)
+                if not genome_fa:
+                    print(f"❌ No valid FASTA files found in {raw_filename}")
+                    continue
+                
+                db_prefix = os.path.join(scratch_dir, f"db_{species_token}")
+                make_db_cmd = ["makeblastdb", "-in", genome_fa, "-dbtype", "nucl", "-out", db_prefix]
+                subprocess.run(make_db_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+                
+                for q in queries:
+                    hit = run_blast_pass(q["path"], db_prefix, task="blastn")
+                    if not hit:
+                        hit = run_blast_pass(q["path"], db_prefix, task="blastn-short")
+                        
+                    if hit:
+                        classification = classify_hit(hit["length"], hit["pident"], q["len"])
+                        out_tsv.write(f"{species_token}\t{raw_filename}\t{q['name']}\t{hit['length']}\t{hit['length']}\t{hit['pident']}\t{hit['evalue']}\t{hit['region']}\t{classification}\n")
+                    else:
+                        out_tsv.write(f"{species_token}\t{raw_filename}\t{q['name']}\t0\t0\t0.0\tN/A\tN/A\tNO_HIT\n")
+                
+                try: os.remove(genome_fa)
+                except: pass
 
-    # 1. On-the-fly Unpacking / Data Streaming Decompression
-    if [[ "$raw_filename" == *.zip ]]; then
-        mkdir -p "$TEMP_EXTRACT"
-        unzip -o "$file_path" -d "$TEMP_EXTRACT" &>/dev/null || true
-        # Identify genomic sequence stream, prioritizing RefSeq if duplicate records exist
-        WORKING_FA=$(find "$TEMP_EXTRACT" -type f -name "*_genomic.fna" | sort -r | head -n 1)
-        if [ -z "$WORKING_FA" ]; then
-            WORKING_FA=$(find "$TEMP_EXTRACT" -type f \( -name "*.fna" -o -name "*.fa" -o -name "*.fasta" \) | head -n 1)
-        fi
-    elif [[ "$raw_filename" == *.gz ]]; then
-        WORKING_FA="${SCRATCH_ROOT}/${species_token}_temp.fa"
-        gunzip -c "$file_path" > "$WORKING_FA"
-    else
-        WORKING_FA="$file_path"
-    fi
+    print(f"\n🎉 Screening Finished! Results written to: '{os.path.abspath(OUTPUT_TSV)}'")
 
-    if [ -z "$WORKING_FA" ] || [ ! -f "$WORKING_FA" ]; then
-        echo "   ⚠️ Skip: No valid sequence coordinates resolved inside $raw_filename"
-        rm -rf "$TEMP_EXTRACT"
-        continue
-    fi
-
-    # 2. Local Database Compiling & Hashing
-    DB_PREFIX="${SCRATCH_ROOT}/${species_token}_db"
-    makeblastdb -in "$WORKING_FA" -dbtype nucl -out "$DB_PREFIX" -hash_index -logfile /dev/null
-
-    # 3. Tier 1: Stringent Pass (Long-Sequence Macro-Homology Resolution)
-    STRINGENT_OUT="${SCRATCH_ROOT}/${species_token}_stringent.txt"
-    blastn \
-        -query "$QUERY_FA" \
-        -db "$DB_PREFIX" \
-        -out "$STRINGENT_OUT" \
-        -task blastn \
-        -word_size 11 \
-        -evalue 1e-5 \
-        -num_threads "$THREADS" \
-        -outfmt "6 length evalue"
-
-    if [ -s "$STRINGENT_OUT" ]; then
-        top_alignment=$(head -n 1 "$STRINGENT_OUT")
-        max_length=$(echo "$top_alignment" | awk '{print $1}')
-        top_evalue=$(echo "$top_alignment" | awk '{print $2}')
-        echo "$species_token | Relaxed (Tier 2) | ${max_length} bp | $top_evalue | Promoter Collapsed / Remnants Only" >> "$SUMMARY_LOG"
-        echo "$species_token | Stringent (Tier 1) | ${max_length} bp | $top_evalue | Conserved Ortholog Retained" >> "$SUMMARY_LOG"
-    else
-        # 4. Tier 2: Relaxed Forensic Pass (Motif Fragment Resolution Fallback)
-        echo "$species_token | Relaxed (Tier 2) | ${max_length} bp | $top_evalue | Promoter Collapsed / Remnants Only" >> "$SUMMARY_LOG"
-        RELAXED_OUT="${SCRATCH_ROOT}/${species_token}_relaxed.txt"
-        blastn \
-            -query "$QUERY_FA" \
-            -db "$DB_PREFIX" \
-            -out "$RELAXED_OUT" \
-            -task blastn-short \
-            -word_size 7 \
-            -evalue 10.0 \
-            -num_threads "$THREADS" \
-            -outfmt "6 length evalue"
-
-        if [ -s "$RELAXED_OUT" ]; then
-            top_alignment=$(head -n 1 "$RELAXED_OUT")
-            max_length=$(echo "$top_alignment" | awk '{print $1}')
-            top_evalue=$(echo "$top_alignment" | awk '{print $2}')
-            echo "   🔴 Tier 2 Fragment Recovered: ${max_length} bp resolved (E-value: ${top_evalue})."
-            echo "$species_token | Relaxed (Tier 2) | ${max_len} bp | $top_evalue | Promoter Collapsed / Remnants Only" >> "$SUMMARY_LOG"
-        else
-            echo "   ❌ Zero Coordinate Overlap. True sequence deletion confirmed."
-            echo "$species_token | Relaxed (Tier 2) | 0 bp | N/A | Complete Sequence Deletion" >> "$SUMMARY_LOG"
-        fi
-    fi
-
-    # 5. Volatile Scratch Drive Flushing (Low-Disk Memory Protection Optimization)
-    rm -rf "${DB_PREFIX}".n* "$TEMP_EXTRACT"
-    if [[ "$raw_filename" == *.gz ]]; then rm -f "$WORKING_FA"; fi
-    echo "--------------------------------------------------------------------------"
-done
-
-echo ""
-echo "🎉 === MASTERS SPECIMEN PORTFOLIO SCREENING PIPELINE COMPLETE ==="
-echo "Final Text Matrix Appended To: $SUMMARY_LOG"
+if __name__ == "__main__":
+    main()
