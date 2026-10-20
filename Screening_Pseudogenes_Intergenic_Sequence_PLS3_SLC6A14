@@ -156,6 +156,105 @@ if __name__ == "__main__":
     for file_path in FILES_TO_SCAN:
         scan_file(file_path)
 
+
+To generate Raw Data:
+python
+import os
+
+BAITS = {
+    "Myotis_lucifugus_AGTR2": (
+        "MKGNFTPATINKNVTSSLDFGLGNISGNDSTFNCSHKPSDKHLDAIPVLYYIIFVIGFLV"
+        "NTIVVTLFCCQKGPKKVSSIYIFNLAVADLLLLATLPLWASYYSYRYDWLFGPVMCKVFG"
+        "SFLTLNMFASIFFITCMSVDRYQSVIYPFLSQRRNPWQASYIVPLVWCMACLSSLPTFYF"
+        "RDVRTVEYLGVNACVMAFPPEKYAQWSAGIALMKNILGFIIPLIFIATCYFGIRKHLLKT"
+        "NSYGKNRITRDQVLKMAAAVVLAFIICWLPFHVLTFLDALAWMGVITSCEVIAVIDLALP"
+        "FAILLGFTNSCVNPFLYCFVGNRFQQKLRRVFRVPITWLQGKRESVSCRKSSSLREMETFVS"
+    ),
+    "Apus_apus_AGTR2": (
+        "MQSNYSLLVTTRETLQVLYTALTNSSAALHPPPPCPLTSSDYHFSLIPAIFSVVFVLGLV"
+        "GNSVVVLVLSCHSGPKTVANIYIFNLAVADLLCLATLPFWATYYSQGYNWLFGSLMCKIS"
+        "SSVLCLNMFASIFFITCMSVDRYHAIVHPLRSQRRTSQQAYFIAVVVWGLACLSSLPTFY"
+        "FREAHYVESLGVNACIMAFPHESYEKWSVATAFLKNALGFFIPLTVITTCYIWIRRHLLK"
+        "AQKFGKTKQKRDKVLKLVAAVVVAFLISWFPFHILTFLDALAHMNIINNCGVTGLIDTAL"
+        "PFGICLAFTNSCTNPLLYCFIGNQFQEKLHRLFKRRVHQFNSRGENSSLRKGSCFRDAET"
+        "PVGREEGPESLL"
+    )
+}
+
+FILES_TO_SCAN = [
+    "/mnt/c/Users/shazi/OneDrive/AGTR2/INTERGENIC_SEQUENCE_Apu_Apu_Swiftbird_SLC6A14_PLS3.txt",
+    "/mnt/c/Users/shazi/OneDrive/AGTR2/INTERGENIC SEQUENCES ANA CALYPTE_PLS3_SLC6A14.txt",
+    "/mnt/c/Users/shazi/OneDrive/AGTR2/Intergenic_Sequence_Myotis_myotis_PLS3_SLC6A14.txt",
+    "/mnt/c/Users/shazi/OneDrive/AGTR2/Intergenic_Thaura_Extracted_Hipposideros_larvatus_AGTR2_intergenic.txt",
+    "/mnt/c/Users/shazi/OneDrive/AGTR2/Intergenic Sequence_Rhinolophus_Sinicus_PLS3_SLC6A14.txt",
+    "/mnt/c/Users/shazi/OneDrive/AGTR2/Intergenic_Sequence_PLS3_SLC6A14_Rhinolophus_Hipposideros.txt",
+    "/mnt/c/Users/shazi/OneDrive/AGTR2/Intergenic_Sequence_PLS3_SLC6A14_Rhinolophus_ferrumequinum.txt"
+]
+
+CODON_TABLE = {
+    'ATA':'I', 'ATC':'I', 'ATT':'I', 'ATG':'M', 'ACA':'T', 'ACC':'T', 'ACG':'T', 'ACT':'T',
+    'AAC':'N', 'AAT':'N', 'AAA':'K', 'AAG':'K', 'AGC':'S', 'AGT':'S', 'AGA':'R', 'AGG':'R',
+    'CTA':'L', 'CTC':'L', 'CTG':'L', 'CTT':'L', 'CCA':'P', 'CCC':'P', 'CCG':'P', 'CCT':'P',
+    'CAC':'H', 'CAT':'H', 'CAA':'Q', 'CAG':'Q', 'CGA':'R', 'CGC':'R', 'CGG':'R', 'CGT':'R',
+    'GTA':'V', 'GTC':'V', 'GTG':'V', 'GTT':'V', 'GCA':'A', 'GCC':'A', 'GCG':'A', 'GCT':'A',
+    'GAC':'D', 'GAT':'D', 'GAA':'E', 'GAG':'E', 'GGA':'G', 'GGC':'G', 'GGG':'G', 'GGT':'G',
+    'TCA':'S', 'TCC':'S', 'TCG':'S', 'TXT':'S', 'TCT':'S', 'TTC':'F', 'TTT':'F', 'TTA':'L', 'TTG':'L',
+    'TAC':'Y', 'TAT':'Y', 'TAA':'*', 'TAG':'*', 'TGC':'C', 'TGT':'C', 'TGA':'*', 'TGG':'W'
+}
+
+def reverse_complement(dna):
+    complement = {'A': 'T', 'T': 'A', 'C': 'G', 'G': 'C', 'N': 'N'}
+    return "".join(complement.get(base, 'N') for base in reversed(dna.upper()))
+
+def translate_frame(dna, frame):
+    seq = dna if frame > 0 else reverse_complement(dna)
+    start_idx = abs(frame) - 1
+    amino_acids = []
+    for i in range(start_idx, len(seq) - 2, 3):
+        codon = seq[i:i+3].upper()
+        amino_acids.append(CODON_TABLE.get(codon, 'X'))
+    return "".join(amino_acids)
+
+def unfiltered_alignment(query, target):
+    if len(target) < len(query):
+        return 0, 0
+    best_score = -1
+    best_pos = 0
+    for i in range(0, len(target) - len(query) + 1):
+        score = sum(1 for q, t in zip(query, target[i:i+len(query)]) if q == t and q != 'X')
+        if score > best_score:
+            best_score = score
+            best_pos = i
+    return best_score, best_pos
+
+if __name__ == "__main__":
+    print("======================================================================")
+    print(" UNFILTERED RAW GENOMIC DATA EXTRACTION MATRIX DUMP")
+    print("======================================================================")
+    
+    for file_path in FILES_TO_SCAN:
+        filename = os.path.basename(file_path)
+        if not os.path.exists(file_path):
+            print(f"\n[!] Path warning: {filename} cannot be found.")
+            continue
+            
+        with open(file_path, 'r') as f:
+            lines = f.readlines()
+        dna_cleaned = "".join(line.strip() for line in lines if not line.startswith('>'))
+        dna_cleaned = "".join(c for c in dna_cleaned if c.upper() in 'ATCGN')
+        
+        print(f"\nFILE: {filename}")
+        for bait_name, bait_seq in BAITS.items():
+            print(f"  Bait: {bait_name}")
+            for frame in [1, 2, 3, -1, -2, -3]:
+                translation = translate_frame(dna_cleaned, frame)
+                score, pos = unfiltered_alignment(bait_seq, translation)
+                window_snippet = translation[pos:pos+len(bait_seq)]
+                stops = window_snippet.count('*')
+                print(f"    Frame={frame:2d} | Alignment_AA_Index={pos:6d} | Unfiltered_Score={score:3d} | Stops={stops:2d}")
+
+
+
 To generate the Figures:
 $ echo '#!/usr/bin/env python3' > generate_unified_figure.py
 echo 'import os' >> generate_unified_figure.py
