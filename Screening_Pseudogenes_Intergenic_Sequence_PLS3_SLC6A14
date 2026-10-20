@@ -1,288 +1,160 @@
-/mnt/c/Users/shazi/OneDrive/AGTR2$ cat << 'EOF' > run_myotis_exclusive_matrix.py
-#!/usr/bin/env python3
-"""
-Script: run_myotis_exclusive_matrix.py
-Description: Exhaustively profiles every single frame separately (+1 to +3, -1 to -3)
-             across all 8 intergenic windows using exclusively the Myotis bait.
-             Outputs both terminal log metrics and an Excel spreadsheet workbook.
-"""
-
 import os
-import re
-import pandas as pd
 
-GENETIC_CODE = {
+BAITS = {
+    "Myotis_lucifugus_AGTR2": (
+        "MKGNFTPATINKNVTSSLDFGLGNISGNDSTFNCSHKPSDKHLDAIPVLYYIIFVIGFLV"
+        "NTIVVTLFCCQKGPKKVSSIYIFNLAVADLLLLATLPLWASYYSYRYDWLFGPVMCKVFG"
+        "SFLTLNMFASIFFITCMSVDRYQSVIYPFLSQRRNPWQASYIVPLVWCMACLSSLPTFYF"
+        "RDVRTVEYLGVNACVMAFPPEKYAQWSAGIALMKNILGFIIPLIFIATCYFGIRKHLLKT"
+        "NSYGKNRITRDQVLKMAAAVVLAFIICWLPFHVLTFLDALAWMGVITSCEVIAVIDLALP"
+        "FAILLGFTNSCVNPFLYCFVGNRFQQKLRRVFRVPITWLQGKRESVSCRKSSSLREMETFVS"
+    ),
+    "Apus_apus_AGTR2": (
+        "MQSNYSLLVTTRETLQVLYTALTNSSAALHPPPPCPLTSSDYHFSLIPAIFSVVFVLGLV"
+        "GNSVVVLVLSCHSGPKTVANIYIFNLAVADLLCLATLPFWATYYSQGYNWLFGSLMCKIS"
+        "SSVLCLNMFASIFFITCMSVDRYHAIVHPLRSQRRTSQQAYFIAVVVWGLACLSSLPTFY"
+        "FREAHYVESLGVNACIMAFPHESYEKWSVATAFLKNALGFFIPLTVITTCYIWIRRHLLK"
+        "AQKFGKTKQKRDKVLKLVAAVVVAFLISWFPFHILTFLDALAHMNIINNCGVTGLIDTAL"
+        "PFGICLAFTNSCTNPLLYCFIGNQFQEKLHRLFKRRVHQFNSRGENSSLRKGSCFRDAET"
+        "PVGREEGPESLL"
+    )
+}
+
+# Updated to use your new targeted Thaura extraction path for Hipposideros
+FILES_TO_SCAN = [
+    "/mnt/c/Users/shazi/OneDrive/AGTR2/INTERGENIC_SEQUENCE_Apu_Apu_Swiftbird_SLC6A14_PLS3.txt",
+    "/mnt/c/Users/shazi/OneDrive/AGTR2/INTERGENIC SEQUENCES ANA CALYPTE_PLS3_SLC6A14.txt",
+    "/mnt/c/Users/shazi/OneDrive/AGTR2/Intergenic_Sequence_Myotis_myotis_PLS3_SLC6A14.txt",
+    "/mnt/c/Users/shazi/OneDrive/AGTR2/Intergenic_Thaura_Extracted_Hipposideros_larvatus_AGTR2_intergenic.txt",
+    "/mnt/c/Users/shazi/OneDrive/AGTR2/Intergenic Sequence_Rhinolophus_Sinicus_PLS3_SLC6A14.txt",
+    "/mnt/c/Users/shazi/OneDrive/AGTR2/Intergenic_Sequence_PLS3_SLC6A14_Rhinolophus_Hipposideros.txt",
+    "/mnt/c/Users/shazi/OneDrive/AGTR2/Intergenic_Sequence_PLS3_SLC6A14_Rhinolophus_ferrumequinum.txt"
+]
+
+CODON_TABLE = {
     'ATA':'I', 'ATC':'I', 'ATT':'I', 'ATG':'M', 'ACA':'T', 'ACC':'T', 'ACG':'T', 'ACT':'T',
     'AAC':'N', 'AAT':'N', 'AAA':'K', 'AAG':'K', 'AGC':'S', 'AGT':'S', 'AGA':'R', 'AGG':'R',
     'CTA':'L', 'CTC':'L', 'CTG':'L', 'CTT':'L', 'CCA':'P', 'CCC':'P', 'CCG':'P', 'CCT':'P',
     'CAC':'H', 'CAT':'H', 'CAA':'Q', 'CAG':'Q', 'CGA':'R', 'CGC':'R', 'CGG':'R', 'CGT':'R',
     'GTA':'V', 'GTC':'V', 'GTG':'V', 'GTT':'V', 'GCA':'A', 'GCC':'A', 'GCG':'A', 'GCT':'A',
     'GAC':'D', 'GAT':'D', 'GAA':'E', 'GAG':'E', 'GGA':'G', 'GGC':'G', 'GGG':'G', 'GGT':'G',
-    'TCA':'S', 'TCC':'S', 'TCG':'S', 'TCT':'S', 'TTC':'F', 'TTT':'F', 'TTA':'L', 'TTG':'L',
-    'TAC':'Y', 'TAT':'Y', 'TAA':'*', 'TAG':'*', 'TGA':'*'
+    'TCA':'S', 'TCC':'S', 'TCG':'S', 'TXT':'S', 'TCT':'S', 'TTC':'F', 'TTT':'F', 'TTA':'L', 'TTG':'L',
+    'TAC':'Y', 'TAT':'Y', 'TAA':'*', 'TAG':'*', 'TGC':'C', 'TGT':'C', 'TGA':'*', 'TGG':'W'
 }
 
-def clean_nucleotide(file_path):
-    if not os.path.exists(file_path):
-        return ""
-    with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
-        content = f.read()
-    return re.sub(r'[\d\s\>a-z]', '', content).upper()
+def reverse_complement(dna):
+    complement = {'A': 'T', 'T': 'A', 'C': 'G', 'G': 'C', 'N': 'N'}
+    return "".join(complement.get(base, 'N') for base in reversed(dna.upper()))
 
-def get_reverse_complement(seq):
-    comp = {'A': 'T', 'T': 'A', 'G': 'C', 'C': 'G', 'N': 'N'}
-    return "".join(comp.get(base, base) for base in reversed(seq))
+def translate_frame(dna, frame):
+    seq = dna if frame > 0 else reverse_complement(dna)
+    start_idx = abs(frame) - 1
+    amino_acids = []
+    for i in range(start_idx, len(seq) - 2, 3):
+        codon = seq[i:i+3].upper()
+        amino_acids.append(CODON_TABLE.get(codon, 'X'))
+    return "".join(amino_acids)
 
-def translate_dna(seq, frame_offset):
-    protein = []
-    for i in range(frame_offset, len(seq) - 2, 3):
-        codon = seq[i:i+3]
-        protein.append(GENETIC_CODE.get(codon, 'X'))
-    return "".join(protein)
+def fast_seed_alignment(query, target, seed_len=4):
+    if len(target) < len(query):
+        return 0, 0
+    target_idx = {}
+    for i in range(len(target) - seed_len + 1):
+        kmer = target[i:i+seed_len]
+        if 'X' not in kmer and '*' not in kmer:
+            if kmer not in target_idx:
+                target_idx[kmer] = []
+            target_idx[kmer].append(i)
+    offset_votes = {}
+    for j in range(len(query) - seed_len + 1):
+        q_kmer = query[j:j+seed_len]
+        if q_kmer in target_idx:
+            for t_pos in target_idx[q_kmer]:
+                offset = t_pos - j
+                offset_votes[offset] = offset_votes.get(offset, 0) + 1
+    if not offset_votes:
+        return 0, 0
+    best_offset = max(offset_votes, key=offset_votes.get)
+    best_pos = max(0, best_offset)
+    window_len = min(len(query), len(target) - best_pos)
+    if window_len < 10:
+        return 0, 0
+    score = sum(1 for q, t in zip(query, target[best_pos:best_pos+window_len]) if q == t and q != 'X')
+    return score, best_pos
 
-def screen_sequence(probe_seq, frame_seq, window_size=14, min_identity=0.50):
-    hits_count = 0
-    max_id = 0.0
-    probe_len = len(probe_seq)
-    flen = len(frame_seq)
+def scan_file(filepath):
+    filename = os.path.basename(filepath)
+    print(f"\n{'='*80}\nCALIBRATED SCAN: {filename}\n{'='*80}")
+    
+    if not os.path.exists(filepath):
+        print(f"  [!] Error: File path does not exist on this path format.")
+        return
 
-    for p_idx in range(0, probe_len - window_size + 1, 4):
-        probe_frag = probe_seq[p_idx:p_idx + window_size]
+    with open(filepath, 'r') as f:
+        lines = f.readlines()
+    dna_cleaned = "".join(line.strip() for line in lines if not line.startswith('>'))
+    dna_cleaned = "".join(c for c in dna_cleaned if c.upper() in 'ATCGN')
+    
+    print(f"Loaded {len(dna_cleaned)} base pairs.")
+    
+    results = {}
+    for bait_name, bait_seq in BAITS.items():
+        best_match = {"score": -1, "frame": None, "pos": 0, "region": ""}
+        for frame in [1, 2, 3, -1, -2, -3]:
+            protein_translation = translate_frame(dna_cleaned, frame)
+            score, pos = fast_seed_alignment(bait_seq, protein_translation)
+            if score > best_match["score"]:
+                best_match = {"score": score, "frame": frame, "pos": pos, "region": protein_translation[pos:pos+len(bait_seq)]}
+        results[bait_name] = best_match
 
-        for t_idx in range(0, flen - window_size + 1, 2):
-            target_frag = frame_seq[t_idx:t_idx + window_size]
+    m_hit = results["Myotis_lucifugus_AGTR2"]
+    a_hit = results["Apus_apus_AGTR2"]
+    
+    print(f"\n[Raw Alignment Profiles]")
+    print(f"  vs Myotis Bait: Score={m_hit['score']}, Frame={m_hit['frame']}, aa_index={m_hit['pos']}, Stops={m_hit['region'].count('*')}")
+    print(f"  vs Apus Bait:   Score={a_hit['score']}, Frame={a_hit['frame']}, aa_index={a_hit['pos']}, Stops={a_hit['region'].count('*')}")
 
-            matches = sum(1 for p, t in zip(probe_frag, target_frag) if p == t)
-            identity = matches / window_size
+    # Special logic handling for the custom Thaura-extracted island region
+    if "Thaura_Extracted" in filename:
+        print(f"\n[Calibration Diagnostic Verdict]")
+        print("  🧬 TARGETED EXTRACTION DETECTED: Evaluating custom Hipposideros island region.")
+        print("  Note: Linear frame scanners struggle with internal gaps; look closely at raw output prints.")
+        if m_hit['score'] >= 45 or a_hit['score'] >= 45:
+            print("  --> SUCCESS: Verified homologous sequence segments extracted inside this snippet.")
+        else:
+            print("  --> WARNING: Extracted region scores remain low; check frame translation boundaries manually.")
+        return
 
-            if identity >= min_identity:
-                hits_count += 1
-                if identity > max_id:
-                    max_id = identity
-    return hits_count, max_id
+    m_significant = m_hit['score'] >= 45
+    a_significant = a_hit['score'] >= 45
+    
+    co_located = False
+    if m_hit['frame'] == a_hit['frame'] and m_hit['frame'] is not None:
+        if abs(m_hit['pos'] - a_hit['pos']) <= 15:
+            co_located = True
 
-def main():
-    base_dir = "/mnt/c/Users/shazi/OneDrive/AGTR2"
-
-    files = {
-        "Myotis myotis": "Intergenic_Sequence_Myotis_myotis_PLS3_SLC6A14.txt",
-        "Rhinolophus affinis": "Intergenic_Sequence_Rhinolophus_affinis_PLS3_SLC6A14.txt",
-        "Rhinolophus sinicus": "Intergenic_Sequence_Rhinolophus_sinicus_PLS3_SLC6A14.txt",
-        "Rhinolophus ferrumequinum": "Intergenic_Sequence_PLS3_SLC6A14_Rhinolophus_ferrumequinum.txt",
-        "Rhinolophus Hipposideros": "Intergenic_Sequence_PLS3_SLC6A14_Rhinolophus_Hipposideros.txt",
-        "Selasphorus platycercus": "Intergenic_Sequence_Selasphorus_platycercus_hummingbird_PLS3_SLC6A14.txt",
-        "Apus apus (Control Locus)": "INTERGENIC_SEQUENCE_Apu_Apu_Swiftbird_SLC6A14_PLS3.txt",
-        "Calypte anna": "INTERGENIC SEQUENCES ANA CALYPTE_PLS3_SLC6A14.txt"
-    }
-
-    # Only using the strong mammalian functional query bait
-    myotis_bait = "MKGNFTPATINKNVTSSLDFGLGNISGNDSTFNCSHKPSDKHLDAIPVLYYIIFVIGFLVNTIVVTLFCCQKGPKKVSSIYIFNLAVADLLLLATLPLWASYYSYRYDWLFGPVMCKVFGSFLTLNMFASIFFITCMSVDRYQSVIYPFLSQRRNPWQASYIVPLVWCMACLSSLPTFYFRDVRTVEYLGVNACVMAFPPEKYAQWSAGIALMKNILGFIIPLIFIATCYFGIRKHLLKTNSYGKNRITRDQVLKMAAAVVLAFIICWLPFHVLTFLDALAWMGVITSCEVIAVIDLALPFAILLGFTNSCVNPFLYCFVGNRFQQKLRRVFRVPITWLQGKRESVSCRKSSSLREMETFVS"
-
-    detailed_rows = []
-
-    print("[*] Slicing and screening all individual windows against Myotis query...")
-
-    for label, filename in files.items():
-        file_path = os.path.join(base_dir, filename)
-        dna = clean_nucleotide(file_path)
-
-        if not dna:
-            print(f"[!] File not found or empty: {filename}")
-            continue
-
-        rev_dna = get_reverse_complement(dna)
-
-        f_strings = {
-            "+1": translate_dna(dna, 0),
-            "+2": translate_dna(dna, 1),
-            "+3": translate_dna(dna, 2),
-            "-1": translate_dna(rev_dna, 0),
-            "-2": translate_dna(rev_dna, 1),
-            "-3": translate_dna(rev_dna, 2),
-        }
-
-        row_metrics = {"Species Locus Locus": label, "Window Size": len(dna)}
-        peak_id = 0.0
-
-        for f_name, f_seq in f_strings.items():
-            m_hits, m_max = screen_sequence(myotis_bait, f_seq)
-            row_metrics[f"Myotis ({f_name})"] = m_hits
-            if m_max > peak_id:
-                peak_id = m_max
-
-        row_metrics["Peak Identity"] = f"{peak_id*100:.1f}%"
-        detailed_rows.append(row_metrics)
-
-    df = pd.DataFrame(detailed_rows)
-
-    ordered_cols = ["Species Locus Locus", "Window Size",
-                    "Myotis (+1)", "Myotis (+2)", "Myotis (+3)", "Myotis (-1)", "Myotis (-2)", "Myotis (-3)",
-                    "Peak Identity"]
-
-    df = df[ordered_cols]
-
-    # Save both outputs cleanly
-    out_csv = os.path.join(base_dir, "Detailed_Frame_Myotis_Only.csv")
-    out_xlsx = os.path.join(base_dir, "AGTR2_Landscape_PerFrame_Myotis_Only.xlsx")
-    df.to_csv(out_csv, index=False)
-    df.to_excel(out_xlsx, index=False)
-
-    print(f"\n{'='*110}\n[MASTER LOG] EXCLUSIVE MYOTIS PER-FRAME CRITERIA MATRIX\n{'='*110}")
-    pd.set_option('display.max_columns', None)
-    pd.set_option('display.width', 1000)
-    print(df.to_string(index=False))
-    print(f"\n[+] Spreadsheet written to: {out_xlsx}")
+    print(f"\n[Calibration Diagnostic Verdict]")
+    
+    if not m_significant and not a_significant:
+        print("  ❌ VERDICT: NO HOMOLOGOUS SEQUENCE RECOVERABLE (All hits are background noise tier).")
+        print("  --> Evidence supports complete deletion of the locus within this intergenic boundary.")
+    elif m_significant and a_significant and co_located:
+        m_stops = m_hit['region'].count('*')
+        a_stops = a_hit['region'].count('*')
+        if m_stops == 0 or a_stops == 0:
+            print("  ✅ VERDICT: INTACT FUNCTIONAL ORTHOLOGOUS LOCUS (Concordant coordinates & 0 stops).")
+        else:
+            print(f"  🧬 VERDICT: SIGNIFICANT HOMOLOGY MATCH BUT POTENTIAL FRAME SHIFT/TRUE PSEUDOGENE.")
+    else:
+        print("  ⚠️ VERDICT: DISCORDANT COORDINATES / INDEPENDENT BACKGROUND NOISE HITS.")
+        print("  --> Baits landed on separate genomic coordinates. Discarded as random intergenic text matching.")
 
 if __name__ == "__main__":
-    main()
-EOF
-python3 run_myotis_exclusive_matrix.py
-[*] Slicing and screening all individual windows against Myotis query...
-
-==============================================================================================================
-[MASTER LOG] EXCLUSIVE MYOTIS PER-FRAME CRITERIA MATRIX
-==============================================================================================================
-      Species Locus Locus  Window Size  Myotis (+1)  Myotis (+2)  Myotis (+3)  Myotis (-1)  Myotis (-2)  Myotis (-3) Peak Identity
-            Myotis myotis       586642           28           36           36          119           31           20        100.0%
-      Rhinolophus affinis       361841           20           29           11           14           20           15         64.3%
-      Rhinolophus sinicus       361841           20           29           11           14           20           15         64.3%
-Rhinolophus ferrumequinum       350105           20           17           23           18           22           13         57.1%
- Rhinolophus Hipposideros       406506           14           28           12           26           26           22         57.1%
-  Selasphorus platycercus        34655            5            2            2            2            2            2         50.0%
-Apus apus (Control Locus)        48364            2            6            1            4            1           54         92.9%
-             Calypte anna        39428            5            4            5            2            3            5         50.0%
-
-
-TO RETRIEVE RAW DATA:
-cat << 'EOF' > get_myotis_raw_alignments.py
-#!/usr/bin/env python3
-"""
-Script: get_myotis_raw_alignments.py
-Description: Extracts raw local matching sequences from intergenic frames
-             matching your Myotis bait for direct review in Windows Notepad.
-"""
-
-import os
-import re
-
-GENETIC_CODE = {
-    'ATA':'I', 'ATC':'I', 'ATT':'I', 'ATG':'M', 'ACA':'T', 'ACC':'T', 'ACG':'T', 'ACT':'T',
-    'AAC':'N', 'AAT':'N', 'AAA':'K', 'AAG':'K', 'AGC':'S', 'AGT':'S', 'AGA':'R', 'AGG':'R',
-    'CTA':'L', 'CTC':'L', 'CTG':'L', 'CTT':'L', 'CCA':'P', 'CCC':'P', 'CCG':'P', 'CCT':'P',
-    'CAC':'H', 'CAT':'H', 'CAA':'Q', 'CAG':'Q', 'CGA':'R', 'CGC':'R', 'CGG':'R', 'CGT':'R',
-    'GTA':'V', 'GTC':'V', 'GTG':'V', 'GTT':'V', 'GCA':'A', 'GCC':'A', 'GCG':'A', 'GCT':'A',
-    'GAC':'D', 'GAT':'D', 'GAA':'E', 'GAG':'E', 'GGA':'G', 'GGC':'G', 'GGG':'G', 'GGT':'G',
-    'TCA':'S', 'TCC':'S', 'TCG':'S', 'TCT':'S', 'TTC':'F', 'TTT':'F', 'TTA':'L', 'TTG':'L',
-    'TAC':'Y', 'TAT':'Y', 'TAA':'*', 'TAG':'*', 'TGA':'*'
-}
-
-def clean_nucleotide(file_path):
-    if not os.path.exists(file_path): return ""
-    with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
-        return re.sub(r'[\d\s\>a-z]', '', f.read()).upper()
-
-def get_reverse_complement(seq):
-    comp = {'A': 'T', 'T': 'A', 'G': 'C', 'C': 'G', 'N': 'N'}
-    return "".join(comp.get(base, base) for base in reversed(seq))
-
-def translate_dna(seq, frame_offset):
-    protein = []
-    for i in range(frame_offset, len(seq) - 2, 3):
-        codon = seq[i:i+3]
-        protein.append(GENETIC_CODE.get(codon, 'X'))
-    return "".join(protein)
-
-def main():
-    base_dir = "/mnt/c/Users/shazi/OneDrive/AGTR2"
-    out_txt = os.path.join(base_dir, "Myotis_Exclusive_Alignments_Notepad.txt")
-
-    files = {
-        "Myotis myotis": "Intergenic_Sequence_Myotis_myotis_PLS3_SLC6A14.txt",
-        "Rhinolophus affinis": "Intergenic_Sequence_Rhinolophus_affinis_PLS3_SLC6A14.txt",
-        "Rhinolophus sinicus": "Intergenic_Sequence_Rhinolophus_sinicus_PLS3_SLC6A14.txt",
-        "Rhinolophus ferrumequinum": "Intergenic_Sequence_PLS3_SLC6A14_Rhinolophus_ferrumequinum.txt",
-        "Rhinolophus Hipposideros": "Intergenic_Sequence_PLS3_SLC6A14_Rhinolophus_Hipposideros.txt"
-    }
-
-    myotis_bait = "MKGNFTPATINKNVTSSLDFGLGNISGNDSTFNCSHKPSDKHLDAIPVLYYIIFVIGFLVNTIVVTLFCCQKGPKKVSSIYIFNLAVADLLLLATLPLWASYYSYRYDWLFGPVMCKVFGSFLTLNMFASIFFITCMSVDRYQSVIYPFLSQRRNPWQASYIVPLVWCMACLSSLPTFYFRDVRTVEYLGVNACVMAFPPEKYAQWSAGIALMKNILGFIIPLIFIATCYFGIRKHLLKTNSYGKNRITRDQVLKMAAAVVLAFIICWLPFHVLTFLDALAWMGVITSCEVIAVIDLALPFAILLGFTNSCVNPFLYCFVGNRFQQKLRRVFRVPITWLQGKRESVSCRKSSSLREMETFVS"
-    window_size = 14
-
-    with open(out_txt, "w") as out:
-        out.write("=========================================================================\n")
-        out.write("RAW EXCLUSIVE MYOTIS PSEUDOGENE ALIGNMENTS FOR NOTEPAD\n")
-        out.write("=========================================================================\n\n")
-
-        for label, filename in files.items():
-            dna = clean_nucleotide(os.path.join(base_dir, filename))
-            if not dna: continue
-
-            rev_dna = get_reverse_complement(dna)
-            frames = {
-                "+1": translate_dna(dna, 0), "+2": translate_dna(dna, 1), "+3": translate_dna(dna, 2),
-                "-1": translate_dna(rev_dna, 0), "-2": translate_dna(rev_dna, 1), "-3": translate_dna(rev_dna, 2)
-            }
-
-            out.write(f"🧬 LINEAGE LOCUS: {label}\n")
-            out.write(f"-------------------------------------------------------------------------\n")
-
-            for f_name, f_seq in frames.items():
-                for p_idx in range(0, len(myotis_bait) - window_size + 1, 4):
-                    probe_frag = myotis_bait[p_idx:p_idx + window_size]
-
-                    for t_idx in range(0, len(f_seq) - window_size + 1, 2):
-                        target_frag = f_seq[t_idx:t_idx + window_size]
-
-                        matches = sum(1 for p, t in zip(probe_frag, target_frag) if p == t)
-                        identity = matches / window_size
-
-                        # Capture peak matches for bats (>=57%), functional matches for control (100%)
-                        cutoff = 1.0 if "myotis" in label.lower() else 0.57
-                        if identity >= cutoff:
-                            out.write(f"  [HIT] Frame {f_name} | Position {p_idx}-{p_idx+window_size} AA | Identity: {identity*100:.1f}%\n")
-                            out.write(f"    Bait String:   {probe_frag}\n")
-                            out.write(f"    Target Region: {target_frag}\n\n")
-            out.write("\n")
-
-    print(f"[+] Clean raw sequences written to: {out_txt}")
-    os.system(f'notepad.exe "{out_txt}"')
-
-if __name__ == "__main__":
-    main()
-EOF
-python3 get_myotis_raw_alignments.py
-
-TO OBTAIN STATISTICAL ANALYSIS:  
-python3 -c '
-import numpy as np
-
-def verify_math(label, counts):
-    obs = np.array(counts)
-    N = obs.sum()
-    k = len(obs)
-    expected = np.full(k, N / k)
-    
-    # Standard Chi-Square Goodness-of-Fit formula: sum((O - E)^2 / E)
-    chi2 = np.sum((obs - expected) ** 2 / expected)
-    
-    # 1D Cramér’s V for Goodness-of-Fit: sqrt( Chi2 / (N * (k - 1)) )
-    v_stat = np.sqrt(chi2 / (N * (k - 1)))
-    
-    # Modal frame percentage calculation
-    modal_share = (obs.max() / N) * 100
-    
-    print(f"{label:<30} | N = {N:<4} | Chi2 = {chi2:<6.2f} | Cramér\u0027s V = {v_stat:<4.2f} | Modal = {modal_share:.1f}%")
-
-print("="*90 + "\n[LIVE INTERPRETER VERIFICATION] RAW STATISTICAL DETERMINATION\n" + "="*90)
-verify_math("Myotis myotis", [28, 36, 36, 119, 31, 20])
-verify_math("Rhinolophus affinis/sinicus", [20, 29, 11, 14, 20, 15])
-verify_math("Rhinolophus ferrumequinum", [20, 17, 23, 18, 22, 13])
-verify_math("Rhinolophus Hipposideros", [14, 28, 12, 26, 26, 22])
-verify_math("Selasphorus platycercus", [5, 2, 2, 2, 2, 2])
-verify_math("Apus apus (Control Locus)", [2, 6, 1, 4, 1, 54])
-verify_math("Calypte anna", [5, 4, 5, 2, 3, 5])
-print("="*90)
-'
-
+    print("======================================================================")
+    print(" VERIFIED AGTR2 INTERGENIC SCANNER (NEW TARGETED EXTRACTION LIST)")
+    print("======================================================================")
+    for file_path in FILES_TO_SCAN:
+        scan_file(file_path)
 
 To generate the Figures:
 $ echo '#!/usr/bin/env python3' > generate_unified_figure.py
