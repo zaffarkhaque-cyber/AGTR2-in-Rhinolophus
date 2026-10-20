@@ -1,0 +1,111 @@
+import os
+import zipfile
+import subprocess
+
+# Define query sequences
+n_term_seq = """>Hipposideros_armiger_AGTR2_N_term
+MTGNYTLAIISKNITSSLYFGLVNISGNESIFNCLHKPSDKHLDAIPILY
+YIIFVIGFRVNTIVVTLFCCQKGPKKVSSIHIFNLAVADLLLLAALPLYY
+SYRHDWLFGPMMHKVFGSFLTLNMFASIFFITCMSVDRYQSVIYPILSQR
+RNPCQAFYIVPLVWGMACLSSLPTFYF"""
+
+c_term_seq = """>Molossus_molossus_AGTR2_C_term
+FYFRDVRTIEYLGVNACIMAFPPEKYAQWSAGIALMKNILGFVIPLIFIATCYFGIRKHLLKTNSYGKNRITRDQVLKMAAAVVLAFIICWLPFHVLTFLDALAWMGVINSCEVIAVIDLALPFAILLGFTNSCVNPFLYCFVGNRFQQKLRRVFRVPITWLQGKRESVSCHKSSSLREMETFVS"""
+
+# Write out the query fasta files locally
+with open("agtr2_n_term.fasta", "w") as f: f.write(n_term_seq)
+with open("agtr2_c_term.fasta", "w") as f: f.write(c_term_seq)
+
+# List of genomes formatted directly with clean Windows Paths
+genomes = [
+    r"C:\Users\shazi\Downloads\roundleaf_genome\ncbi_dataset\data\GCF_001890085.2",
+    r"C:\Users\shazi\Downloads\Heliangelus_exortis_ncbi_dataset.zip",
+    r"C:\Users\shazi\Downloads\Anolis_carolinensis_ncbi_dataset (1).zip",
+    r"C:\Users\shazi\Downloads\Danio_rerio_ncbi_dataset.zip",
+    r"C:\Users\shazi\Downloads\Leptonychotes_weddellii_ncbi_dataset.zip",
+    r"C:\Users\shazi\OneDrive\Desktop\BATCH GENOMES\Group 4\Falco_cherrug_ncbi_dataset.zip",
+    r"C:\Users\shazi\OneDrive\Desktop\BATCH GENOMES\Group 5\homo_sapiens_ncbi_dataset.zip",
+    r"C:\Users\shazi\Downloads\Anser_indicus_ncbi_dataset.zip",
+    r"C:\Users\shazi\OneDrive\Desktop\BATCH GENOMES\Group 5\Hipposideros_armiger_great_roundleaf_bat_ncbi_dataset.zip",
+    r"C:\Users\shazi\OneDrive\Desktop\BATCH GENOMES\Group9\Rhinolophus_hipposideros_ncbi_dataset 1.zip",
+    r"C:\Users\shazi\Downloads\Falco_peregrinus_ncbi_dataset.zip",
+    r"C:\Users\shazi\Downloads\Branta_canadensis_ncbi_dataset.zip",
+    r"C:\Users\shazi\Downloads\Manis_javanica_ncbi_dataset.zip",
+    r"C:\Users\shazi\Downloads\Camelus_dromedarius_ncbi_dataset.zip",
+    r"C:\Users\shazi\Downloads\Macroderma_gigas_ncbi_dataset.zip",
+    r"C:\Users\shazi\Downloads\Hipposideros_larvatus_ncbi_dataset.zip",
+    r"C:\Users\shazi\Downloads\Rhinolophus_hipposideros_ncbi_dataset.zip",
+    r"C:\Users\shazi\OneDrive\Desktop\BATCH GENOMES\Group9\Rhinolophus_affinis_ncbi_dataset.zip",
+    r"C:\Users\shazi\OneDrive\Desktop\BATCH GENOMES\Group6\Megaderma_spasma_ncbi_dataset.zip",
+    r"C:\Users\shazi\OneDrive\Desktop\BATCH GENOMES\Group 2\Aselliscus_stoliczkanus_ncbi_dataset.zip",
+    r"C:\Users\shazi\OneDrive\Desktop\BATCH GENOMES\Group9\Rhinolophus_lepidus_ncbi_dataset.zip",
+    r"C:\Users\shazi\OneDrive\Desktop\BATCH GENOMES\Group7\Myotis_myotis_ncbi_dataset.zip",
+    r"C:\Users\shazi\Downloads\Pteropus_alecto_ncbi_dataset.zip",
+    r"C:\Users\shazi\OneDrive\Desktop\BATCH GENOMES\Group8\Phyllostomus_discolor_ncbi_dataset.zip",
+    r"C:\Users\shazi\OneDrive\Desktop\BATCH GENOMES\Group8\Pipistrellus_kuhlii_ncbi_dataset.zip",
+    r"C:\Users\shazi\OneDrive\Desktop\BATCH GENOMES\Group6\Molossus_Molossus_ncbi_dataset.zip",
+    r"C:\Users\shazi\Downloads\Cynopterus_sphinx (Indian short-nosed fruit ncbi_dataset.zip",
+    r"C:\Users\shazi\Downloads\Eidolon_hevlum_ncbi_dataset.zip",
+    r"C:\Users\shazi\Downloads\Rhinolophus_sinicus_ncbi_dataset.zip",
+    r"C:\Users\shazi\Downloads\Rhinolophus_ferrumequinum_ncbi_dataset.zip",
+    r"C:\Users\shazi\Downloads\Selasphorus_platycercus_ncbi_dataset.zip",
+    r"C:\Users\shazi\Downloads\Apus_apus_ncbi_dataset.zip",
+    r"C:\Users\shazi\Downloads\Calypte_anna_ncbi_dataset (2).zip",
+    r"C:\Users\shazi\Downloads\Hipposideros_larvatus_ncbi_dataset (2).zip"
+]
+
+# Points directly to the extracted Windows tblastn executable
+tblastn_path = r"C:\Users\shazi\Downloads\ncbi-blast-2.17.0+\bin\tblastn.exe"
+output_summary = "agtr2_screening_summary.tsv"
+
+with open(output_summary, "w") as out_f:
+    out_f.write("Genome_Path\tTerminus\tScaffold\tIdentity%\tAln_Len\tE-value\tQ_Start\tQ_End\tS_Start\tS_End\n")
+
+    for genome_path in genomes:
+        print(f"Processing: {genome_path}")
+        if not os.path.exists(genome_path):
+            print("  [File or Folder path missing! Skipping]")
+            continue
+            
+        # Compile temporary processing buffer
+        with open("combined_target.fasta", "w", errors="ignore") as target_f:
+            if genome_path.endswith(".zip"):
+                with zipfile.ZipFile(genome_path, 'r') as z:
+                    for file_info in z.infolist():
+                        if file_info.filename.endswith(".fna"):
+                            try:
+                                target_f.write(z.read(file_info).decode('utf-8'))
+                            except Exception:
+                                pass
+            elif os.path.isdir(genome_path):
+                for root, dirs, files in os.walk(genome_path):
+                    for file_name in files:
+                        if file_name.endswith(".fna"):
+                            try:
+                                with open(os.path.join(root, file_name), 'r', errors="ignore") as inner_f:
+                                    target_f.write(inner_f.read())
+                            except Exception:
+                                pass
+
+        if not os.path.exists("combined_target.fasta") or os.path.getsize("combined_target.fasta") == 0:
+            print("  [No genomic .fna items found. Skipping]")
+            continue
+
+        # Execute alignments using Windows command prompt system parameters
+        for query_name, query_file in [("N-Term", "agtr2_n_term.fasta"), ("C-Term", "agtr2_c_term.fasta")]:
+            cmd = [
+                tblastn_path, "-query", query_file, "-subject", "combined_target.fasta",
+                "-outfmt", "6 sseqid pident length evalue qstart qend sstart send",
+                "-max_target_seqs", "1", "-max_hsps", "1"
+            ]
+            res = subprocess.run(cmd, capture_output=True, text=True)
+            
+            if res.returncode == 0 and res.stdout.strip():
+                for hit in res.stdout.strip().split("\n"):
+                    out_f.write(f"{genome_path}\t{query_name}\t{hit.replace(' ', '\t')}\n")
+            else:
+                out_f.write(f"{genome_path}\t{query_name}\tNo Hit\t\t\t\t\t\t\t\n")
+
+# Cleanup working files
+if os.path.exists("combined_target.fasta"): os.remove("combined_target.fasta")
+print(f"\nAnalysis complete! Results saved to: {os.path.abspath(output_summary)}")
