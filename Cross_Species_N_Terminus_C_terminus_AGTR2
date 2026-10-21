@@ -2,74 +2,106 @@ import os
 import zipfile
 import subprocess
 
-# Define query sequences
-n_term_seq = """>Myotis_lucifigus_AGTR2_N_term
+# ==========================================
+# 1. DEFINE PROBE SEQUENCES
+# ==========================================
+
+probes_data = {
+    "agtr2_n_term.fasta": """>Myotis_lucifugus_AGTR2_N_term
 MKGNFTPATINKNVTSSLDFGLGNISGNDSTFNCSHKPSDKHLDAIPVLYYIIFVIGFLV
 NTIVVTLFCCQKGPKKVSSIYIFNLAVADLLLLATLPLWASYYSYRYDWLFGPVMCKVFG
-SFLTLNMFASIFFITCMSVDRYQSVIYPFLSQRRNPWQASYIVPLVWCMACLSSLPT"""
+SFLTLNMFASIFFITCMSVDRYQSVIYPFLSQRRNPWQASYIVPLVWCMACLSSLPT""",
 
-c_term_seq = """>Myotis_lucifigus_AGTR2_C_term
+    "agtr2_c_term.fasta": """>Myotis_lucifugus_AGTR2_C_term
 FYFRDVRTVEYLGVNACVMAFPPEKYAQWSAGIALMKNILGFIIPLIFIATCYFGIRKHL
 LKTNSYGKNRITRDQVLKMAAAVVLAFIICWLPFHVLTFLDALAWMGVITSCEVIAVIDL
 ALPFAILLGFTNSCVNPFLYCFVGNRFQQKLRRVFRVPITWLQGKRESVSCRKSSSLREM
-ETFVS"""
+ETFVS""",
 
-# Write out the query fasta files locally
-with open("agtr2_n_term.fasta", "w") as f: f.write(n_term_seq)
-with open("agtr2_c_term.fasta", "w") as f: f.write(c_term_seq)
+    "fbp2_r_ferrumequinum.fasta": """>Rhinolophus_ferrumequinum_FBP2
+MTDRSPFETDMLTLTRYVMEKGRQAKGTGELTQLLNSMLTAIKAISSAVRKAGLANLYGI
+AGSVNVTGDEVKKLDVLSNSLVINMLQSSYSTCVLVSEENKEAIITGKDQRGKYVVCFDP
+LDGSSNIDCLASIGTIFAIYRKTSEGEPSEKDALQPGRNIVAAGYALYGSATLVALSTGQ
+GVDLFMLDPALGEFVLVEKEVKIKKKGKIYSLNEGYAKYFDAATTDYVQRKKFPEDSSAP
+YGARYVGSMVADVHRTLVYGGIFLYPANQKNPKGKLRLLYECNPVAFIIEQAGGLATTGT
+QPVLDVKPETIHQRVPLILGSPDDVQEYLTCVQKNQAGQKLEL""",
 
-# List of genomes formatted directly with clean Windows Paths
+    "fbp2_human_n_term.fasta": """>Human_FBP2_N_term
+MTDRSPFETDMLTLTRYVMEKGRQAKGTGELTQLLNSMLTAIKAISSAVRKAGLAHLYGI
+AGSVNVTGDEVKKLDVLSNSLVINMVQSSYSTCVLVSEENKDAIITAKEKRGKYVVCFDP
+LDGSSNIDCLASIGTIFAIYRKTSEDEPSEKDALQCGRNIVAAGYALYGSATLVALSTGQ
+GVDLFMLDPALGEFVLVEKDVKIKKKGK""",
+
+    "fbp2_human_c_term.fasta": """>Human_FBP2_C_term
+IYSLNEGYAKYFDAATTEYVQKKKFPEDGSAPYGARYVGSMVADVHRTLVYGGIFLYPAN
+QKSPKGKLRLLYECNPVAYIIEQAGGLATTGTQPVLDVKPEAIHQRVPLILGSPEDVQEY
+LTCVQKNQAGS""",
+
+    "gulo_h_armiger.fasta": """>Hipposideros_armiger_GULO
+MVHGYKGVTFQNWAKTYGCCPEMYYQPTSVEEIREVPALARQQNKRVKVVGGGHSPSDIA
+CTDGFMIHMGKMNRVLQVDTEKKQVTVEAGILLADLNPQLDKHGLALSNLGAVSDVTAAG
+VIGSGTHNTGLKHGILSTQVVALTLLMADGTLLECSESSNAHVFQAVRVHLGCLGVILTI
+TLQCVPQFHLQETSFPSTLREVLDNLDSHLKKSEYFRFLWFPHSENVSVIYQDHTNKPPS
+SSANWFWDYAVGFYLLEFLLWISTFLPGLVGWINCFFFWLLFARKKESSNLSYKIFTYEC
+RFKQHVQDWAIPREKTKEALLELKAMLEAHPKVVAHFPVEVRFTRGDDILLSPCFQRDSC
+YMNIIMYRPYGKDVSRQDYWLAYETIMKKVGGRPHWAKAHNCTRKDFEKMYPAFPKFCAI
+REKLDPTGMFLNAYLEKVFY"""
+}
+
+# Generate local fasta search files
+for filename, seq_content in probes_data.items():
+    with open(filename, "w") as f:
+        f.write(seq_content)
+
+# ==========================================
+# 2. TARGET GENOMES (18 SECTIONS)
+# ==========================================
 genomes = [
     r"C:\Users\shazi\Downloads\roundleaf_genome\ncbi_dataset\data\GCF_001890085.2",
     r"C:\Users\shazi\Downloads\Heliangelus_exortis_ncbi_dataset.zip",
-    r"C:\Users\shazi\Downloads\Anolis_carolinensis_ncbi_dataset (1).zip",
-    r"C:\Users\shazi\Downloads\Danio_rerio_ncbi_dataset.zip",
-    r"C:\Users\shazi\Downloads\Leptonychotes_weddellii_ncbi_dataset.zip",
-    r"C:\Users\shazi\OneDrive\Desktop\BATCH GENOMES\Group 4\Falco_cherrug_ncbi_dataset.zip",
     r"C:\Users\shazi\OneDrive\Desktop\BATCH GENOMES\Group 5\homo_sapiens_ncbi_dataset.zip",
-    r"C:\Users\shazi\Downloads\Anser_indicus_ncbi_dataset.zip",
     r"C:\Users\shazi\OneDrive\Desktop\BATCH GENOMES\Group 5\Hipposideros_armiger_great_roundleaf_bat_ncbi_dataset.zip",
     r"C:\Users\shazi\OneDrive\Desktop\BATCH GENOMES\Group9\Rhinolophus_hipposideros_ncbi_dataset 1.zip",
-    r"C:\Users\shazi\Downloads\Falco_peregrinus_ncbi_dataset.zip",
-    r"C:\Users\shazi\Downloads\Branta_canadensis_ncbi_dataset.zip",
-    r"C:\Users\shazi\Downloads\Manis_javanica_ncbi_dataset.zip",
-    r"C:\Users\shazi\Downloads\Camelus_dromedarius_ncbi_dataset.zip",
-    r"C:\Users\shazi\Downloads\Macroderma_gigas_ncbi_dataset.zip",
     r"C:\Users\shazi\Downloads\Hipposideros_larvatus_ncbi_dataset.zip",
     r"C:\Users\shazi\Downloads\Rhinolophus_hipposideros_ncbi_dataset.zip",
     r"C:\Users\shazi\OneDrive\Desktop\BATCH GENOMES\Group9\Rhinolophus_affinis_ncbi_dataset.zip",
     r"C:\Users\shazi\OneDrive\Desktop\BATCH GENOMES\Group6\Megaderma_spasma_ncbi_dataset.zip",
     r"C:\Users\shazi\OneDrive\Desktop\BATCH GENOMES\Group 2\Aselliscus_stoliczkanus_ncbi_dataset.zip",
-    r"C:\Users\shazi\OneDrive\Desktop\BATCH GENOMES\Group9\Rhinolophus_lepidus_ncbi_dataset.zip",
     r"C:\Users\shazi\OneDrive\Desktop\BATCH GENOMES\Group7\Myotis_myotis_ncbi_dataset.zip",
     r"C:\Users\shazi\Downloads\Pteropus_alecto_ncbi_dataset.zip",
-    r"C:\Users\shazi\OneDrive\Desktop\BATCH GENOMES\Group8\Phyllostomus_discolor_ncbi_dataset.zip",
-    r"C:\Users\shazi\OneDrive\Desktop\BATCH GENOMES\Group8\Pipistrellus_kuhlii_ncbi_dataset.zip",
     r"C:\Users\shazi\OneDrive\Desktop\BATCH GENOMES\Group6\Molossus_Molossus_ncbi_dataset.zip",
-    r"C:\Users\shazi\Downloads\Cynopterus_sphinx (Indian short-nosed fruit ncbi_dataset.zip",
-    r"C:\Users\shazi\Downloads\Eidolon_hevlum_ncbi_dataset.zip",
     r"C:\Users\shazi\Downloads\Rhinolophus_sinicus_ncbi_dataset.zip",
     r"C:\Users\shazi\Downloads\Rhinolophus_ferrumequinum_ncbi_dataset.zip",
-    r"C:\Users\shazi\Downloads\Selasphorus_platycercus_ncbi_dataset.zip",
+    r"rC:\Users\shazi\Downloads\Selasphorus_platycercus_ncbi_dataset.zip",
     r"C:\Users\shazi\Downloads\Apus_apus_ncbi_dataset.zip",
-    r"C:\Users\shazi\Downloads\Calypte_anna_ncbi_dataset (2).zip",
-    r"C:\Users\shazi\Downloads\Hipposideros_larvatus_ncbi_dataset (2).zip"
+    r"C:\Users\shazi\Downloads\Calypte_anna_ncbi_dataset (2).zip"
 ]
 
-# Points directly to the extracted Windows tblastn executable
 tblastn_path = r"C:\Users\shazi\Downloads\ncbi-blast-2.17.0+\bin\tblastn.exe"
-output_summary = "agtr2_screening_summary.tsv"
+output_summary = "multi_gene_screening_summary.tsv"
 
+# Pipeline mapping configuration
+probes_pipeline = [
+    ("AGTR2", "N-Term", "agtr2_n_term.fasta"),
+    ("AGTR2", "C-Term", "agtr2_c_term.fasta"),
+    ("FBP2 (Rhinolophus)", "Full", "fbp2_r_ferrumequinum.fasta"),
+    ("FBP2 (Human)", "N-Term", "fbp2_human_n_term.fasta"),
+    ("FBP2 (Human)", "C-Term", "fbp2_human_c_term.fasta"),
+    ("GULO", "Full", "gulo_h_armiger.fasta")
+]
+
+# ==========================================
+# 3. ALIGNMENT ENGINE
+# ==========================================
 with open(output_summary, "w") as out_f:
-    out_f.write("Genome_Path\tTerminus\tScaffold\tIdentity%\tAln_Len\tE-value\tQ_Start\tQ_End\tS_Start\tS_End\n")
+    out_f.write("Genome_Path\tGene\tDomain\tScaffold\tIdentity%\tAln_Len\tE-value\tQ_Start\tQ_End\tS_Start\tS_End\n")
 
     for genome_path in genomes:
-        print(f"Processing: {genome_path}")
+        print(f"Processing target: {genome_path}")
         if not os.path.exists(genome_path):
-            print("  [File or Folder path missing! Skipping]")
+            print("  [Path configuration target missing! Skipping]")
             continue
             
-        # Compile temporary processing buffer
         with open("combined_target.fasta", "w", errors="ignore") as target_f:
             if genome_path.endswith(".zip"):
                 with zipfile.ZipFile(genome_path, 'r') as z:
@@ -90,11 +122,10 @@ with open(output_summary, "w") as out_f:
                                 pass
 
         if not os.path.exists("combined_target.fasta") or os.path.getsize("combined_target.fasta") == 0:
-            print("  [No genomic .fna items found. Skipping]")
+            print("  [No target assemblies compiled. Skipping]")
             continue
 
-        # Execute alignments using Windows command prompt system parameters
-        for query_name, query_file in [("N-Term", "agtr2_n_term.fasta"), ("C-Term", "agtr2_c_term.fasta")]:
+        for gene_name, domain_name, query_file in probes_pipeline:
             cmd = [
                 tblastn_path, "-query", query_file, "-subject", "combined_target.fasta",
                 "-outfmt", "6 sseqid pident length evalue qstart qend sstart send",
@@ -104,10 +135,119 @@ with open(output_summary, "w") as out_f:
             
             if res.returncode == 0 and res.stdout.strip():
                 for hit in res.stdout.strip().split("\n"):
-                    out_f.write(f"{genome_path}\t{query_name}\t{hit.replace(' ', '\t')}\n")
+                    out_f.write(f"{genome_path}\t{gene_name}\t{domain_name}\t{hit.replace(' ', '\t')}\n")
             else:
-                out_f.write(f"{genome_path}\t{query_name}\tNo Hit\t\t\t\t\t\t\t\n")
+                out_f.write(f"{genome_path}\t{gene_name}\t{domain_name}\tNo Hit\t\t\t\t\t\t\t\t\n")
 
-# Cleanup working files
-if os.path.exists("combined_target.fasta"): os.remove("combined_target.fasta")
-print(f"\nAnalysis complete! Results saved to: {os.path.abspath(output_summary)}")
+if os.path.exists("combined_target.fasta"): 
+    os.remove("combined_target.fasta")
+print(f"\nExecution finished! Final matrix data compiled inside: {os.path.abspath(output_summary)}")
+
+
+
+To process Imaging:
+import os
+import re
+import pandas as pd
+import matplotlib.pyplot as plt
+
+# File configurations - searches in standard directory paths
+input_file = "multi_gene_screening_summary.tsv"
+output_csv = "final_publication_matrix.csv"
+output_png = "multi_gene_evolutionary_profile.png"
+
+# Redirect pathing to search where execution prompt is running if file is not found locally
+if not os.path.exists(input_file) and os.path.exists(r"C:\Users\shazi\multi_gene_screening_summary.tsv"):
+    input_file = r"C:\Users\shazi\multi_gene_screening_summary.tsv"
+
+if not os.path.exists(input_file):
+    print(f"Error: {input_file} not found. Please ensure the summary file exists in C:\\Users\\shazi\\")
+    exit()
+
+# 1. Load raw screening data matrix
+df = pd.read_csv(input_file, sep="\t")
+df.replace(r'^\s*$', pd.NA, regex=True, inplace=True)
+df['Identity%'] = pd.to_numeric(df['Identity%']).fillna(0)
+
+# 2. Clean Taxonomy Mapping Function
+def clean_taxonomy(path):
+    path_lower = path.lower()
+    if "roundleaf_genome" in path_lower or "hipposideros_armiger" in path_lower:
+        return "Hipposideros armiger"
+    elif "larvatus" in path_lower:
+        return "Hipposideros larvatus"
+    elif "hipposideros" in path_lower:
+        return "Rhinolophus hipposideros"
+    elif "affinis" in path_lower:
+        return "Rhinolophus affinis"
+    elif "sinicus" in path_lower:
+        return "Rhinolophus sinicus"
+    elif "ferrumequinum" in path_lower:
+        return "Rhinolophus ferrumequinum"
+    elif "megaderma" in path_lower or "spasma" in path_lower:
+        return "Megaderma spasma"
+    elif "homo_sapiens" in path_lower or "sapiens" in path_lower:
+        return "Homo sapiens"
+    elif "heliangelus" in path_lower or "exortis" in path_lower:
+        return "Heliangelus exortis"
+    
+    base = os.path.basename(path)
+    match = re.search(r"([A-Z][a-z]+_[a-z]+)", base)
+    if match:
+        return match.group(1).replace("_", " ")
+    return "Unknown Variant Species"
+
+df['Taxon'] = df['Genome_Path'].apply(clean_taxonomy)
+df['Feature'] = df['Gene'] + " (" + df['Domain'] + ")"
+
+# 3. Pivot dataframe cleanly into widespread table columns
+pivot_matrix = df.pivot_table(
+    index=['Taxon', 'Scaffold'],
+    columns=['Gene', 'Domain'],
+    values=['Identity%', 'S_Start', 'S_End']
+)
+# Collapse multiindex headers safely into clean text fields
+pivot_matrix.columns = [f"{gene}_{domain}_{val}" for val, gene, domain in pivot_matrix.columns]
+pivot_matrix = pivot_matrix.reset_index()
+
+# Drop duplicates to prevent redundant taxonomic rows in output spreads
+pivot_matrix = pivot_matrix.drop_duplicates(subset=['Taxon', 'Scaffold'])
+pivot_matrix.to_csv(os.path.join(r"C:\Users\shazi", output_csv), index=False)
+print(f"[*] Wide-format manuscript matrix saved to: C:\\Users\\shazi\\{output_csv}")
+
+# 4. Generate high-resolution publication plot using direct Matplotlib & Pandas
+# Reshape the table specifically for clean group bar chart visualization formatting
+plot_matrix = df.pivot_table(index='Taxon', columns='Feature', values='Identity%', aggfunc='mean').fillna(0)
+
+# Sort target bars cleanly by highest sequence values found inside GULO profiles if available
+if 'GULO (Full)' in plot_matrix.columns:
+    plot_matrix = plot_matrix.sort_values(by='GULO (Full)', ascending=False)
+
+fig, ax = plt.subplots(figsize=(14, 7))
+
+# Custom publication colors matching scientific figure protocols
+colors = ['#440154', '#3b528b', '#21918c', '#5dc963', '#fde725', '#e6550d']
+plot_matrix.plot(kind='bar', ax=ax, width=0.8, color=colors[:len(plot_matrix.columns)], edgecolor='black', linewidth=0.7)
+
+# Graph styling adjustments
+ax.set_ylabel('Sequence Amino Acid Identity (%)', fontsize=13, fontweight='bold')
+ax.set_xlabel('Target Screened Eukaryotic Genomes', fontsize=13, fontweight='bold')
+ax.set_title('Multi-Gene Evolutionary Profile: Control Domain Conservation (FBP2/GULO) vs AGTR2 Divergence', fontsize=14, fontweight='bold', pad=20)
+ax.set_ylim(0, 110)
+ax.grid(axis='y', linestyle='--', alpha=0.7)
+
+# Rotate labels elegantly and enforce bold formatting
+plt.xticks(rotation=25, ha='right', fontsize=11, fontweight='bold')
+
+# Enforce true italic text styling across x-axis label fonts manually for species names
+labels = [label.get_text() for label in ax.get_xticklabels()]
+ax.set_xticklabels(labels, rotation=25, ha='right', fontsize=11, fontweight='bold', style='italic')
+
+ax.legend(title="Gene & Targeted Domain Probe", loc='upper right', frameon=True, facecolor='white', framealpha=0.9, edgecolor='gray')
+plt.tight_layout()
+
+# Save high-resolution figure asset
+plt.savefig(os.path.join(r"C:\Users\shazi", output_png), dpi=300)
+print(f"[*] Publication-ready comparative figure plot saved to: C:\\Users\\shazi\\{output_png}")
+plt.show()
+
