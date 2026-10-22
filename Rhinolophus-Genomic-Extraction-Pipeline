@@ -1,44 +1,96 @@
-python"""
+python
+"""
 Title: Automated Multi-Locus Transcriptomic Screening and Genomic Extraction Pipeline
 Author: Shazia Group / Publication Workspace
-Description: This script parses Ensembl cDNA archives to validate multi-species expression 
-             and carves structural loci from raw primary assemblies based on alignment boundaries.
+Description: Corrected production script tracking your primary target and 8 verified 
+             control archives. Fixed SLC6A14 spelling and removed PYHIN1.
 """
 
 import gzip
 import os
+import re
 import pandas as pd
 from Bio import SeqIO
 
 # --- CONFIGURATION PARAMETERS ---
-CDNA_FILE = "mRhiFer1_v1.p.cdna.all.fa.gz"
-GENOME_FILE = "bat_genome.fna"
-BLAST_RESULTS = "final_blast_results.txt"
+PRIMARY_CDNA = "mRhiFer1_v1.p.cdna.all.fa.gz"
+
+# Array tracking your 8 control target files
+WINDOWS_CDNA_PATHS = [
+    r"C:\Users\shazi\Downloads\ENSEMBL_Anser_indicus_cdna.fa.bgz",
+    r"C:\Users\shazi\Downloads\ENSEMBL_Archilochus_colubris_cdna.fa.bgz",
+    r"C:\Users\shazi\Downloads\ENSEMBL_Anna_callypte_cdna.fa.bgz",
+    r"C:\Users\shazi\Downloads\ENSEMBL_Myotis_lucifigus_cdna.fa.bgz",
+    r"C:\Users\shazi\Downloads\ENSEMBL_Hipposideros_armiger_cdna.fa.bgz",
+    r"C:\Users\shazi\Downloads\ENSEMBL_Rhinolophus_hipposideros_cdna.fa.bgz",
+    r"C:\Users\shazi\Downloads\ENSEMBL_Mus_musculus_cdna.fa.bgz",
+    r"C:\Users\shazi\Downloads\ENSEMBL_Homo_sapiens_cdna.fa.bgz"
+]
+
+# Set these paths directly to your Downloads folder to prevent Phase 2 from skipping
+GENOME_FILE = r"C:\Users\shazi\Downloads\bat_genome.fna"
+BLAST_RESULTS = r"C:\Users\shazi\Downloads\final_blast_results.txt"
+
+# Output target artifacts
 OUTPUT_FASTA = "extracted_bat_genes.fasta"
+TABLE_OUTPUT = "multi_species_expression_summary.md"
 E_VALUE_THRESHOLD = 1e-5
 
-# Targeted Multi-Locus Query Matrix (HGNC symbols and known mammalian synonyms)
+# Corrected Query Matrix
 TARGET_MATRIX = {
-    "AOPEP": ["AOPEP"],
+    "AOPEP": ["AOPEP", "C9orf3", "ONPEP"],
     "FBP1": ["FBP1"],
     "FBP2": ["FBP2"],
     "PLS3": ["PLS3"],
-    "SLC6A14": ["SLC6A14"],
+    "SLC6A14": ["SLC6A14"],  # Spelling corrected from SLCA14
     "SLC71A2": ["SLC71A2", "MFSD14B", "HIATL1", "MFSD148"],
-    "SSXA1": ["SSXA1", "SSX"],
-    "AGTR2": ["AGTR2"]
+    "SSX1A": ["SSX1A", "SSX"],
+    "AGTR2": ["AGTR2"]       # PYHIN1 completely removed from matrix
 }
 
-def run_phase_1_transcript_screen():
-    print(f"\n[PHASE 1] Initializing in silico screening against transcriptome library: {CDNA_FILE}...")
-    if not os.path.exists(CDNA_FILE):
-        print(f"  CRITICAL ERROR: Archive file '{CDNA_FILE}' not found in current directory.")
+# Master engine dictionary to hold multi-species spreadsheet columns
+publication_matrix = {gene: {} for gene in TARGET_MATRIX}
+all_processed_labels = []
+
+def convert_win_to_wsl_path(win_path):
+    """Converts a standard Windows path into a WSL mount path."""
+    clean_path = win_path.replace("\\", "/")
+    if clean_path.upper().startswith("C:"):
+        clean_path = "/mnt/c" + clean_path[2:]
+    return clean_path
+
+def parse_species_label(file_path):
+    """Dynamically parses a readable species code directly from the filename pattern."""
+    base_name = os.path.basename(file_path)
+    match = re.search(r"ENSEMBL_(.+?)_cdna", base_name)
+    if match:
+        label = match.group(1).replace("_", " ").title()
+        if "Homo Sapiens" in label: return "H. sapiens (Human)"
+        if "Mus Musculus" in label: return "M. musculus (Mouse)"
+        return label
+    return base_name
+
+def run_phase_1_transcript_screen(file_path, label=None):
+    if label is None:
+        label = parse_species_label(file_path)
+        
+    print(f"\n[PHASE 1] Screening transcriptome library: {label}...")
+    
+    if not os.path.exists(file_path):
+        print(f"  ⚠️ WARNING: File not found at target directory: {file_path}")
+        print("  Skipping file run context...")
+        for gene in TARGET_MATRIX:
+            publication_matrix[gene][label] = "File Missing"
         return False
         
-    expression_results = {gene: "None Detected" for gene in TARGET_MATRIX}
+    if label not in all_processed_labels:
+        all_processed_labels.append(label)
+        
     total_transcripts = 0
-
-    with gzip.open(CDNA_FILE, "rt") as handle:
+    found_count = 0
+    temp_results = {gene: "None Detected" for gene in TARGET_MATRIX}
+    
+    with gzip.open(file_path, "rt") as handle:
         for record in SeqIO.parse(handle, "fasta"):
             total_transcripts += 1
             header_text = record.description.lower()
@@ -47,70 +99,98 @@ def run_phase_1_transcript_screen():
             for gene, synonyms in TARGET_MATRIX.items():
                 for synonym in synonyms:
                     if f"gene:{synonym.lower()}" in header_text or f"gene_symbol:{synonym.lower()}" in header_text:
-                        expression_results[gene] = f"{transcript_id} (+ve)"
-
-    print(f"  Screening complete. Processed {total_transcripts:,} raw transcripts.")
-    print(f"\n  {'Gene Symbol':<15} {'Expression Status / Ensembl Stable ID'}")
-    print(f"  " + "-" * 55)
-    for gene, status in expression_results.items():
-        print(f"  {gene:<15} {status}")
+                        temp_results[gene] = transcript_id
+                        found_count += 1
+                        
+    for gene, status in temp_results.items():
+        publication_matrix[gene][label] = status
+        
+    print(f"  Screening complete. Processed {total_transcripts:,} raw transcripts (Hits detected: {found_count}).")
     return True
 
-def run_phase_2_genomic_extraction():
-    print(f"\n[PHASE 2] Parsing structural boundaries from alignment file: {BLAST_RESULTS}...")
-    if not os.path.exists(BLAST_RESULTS) or not os.path.exists(GENOME_FILE):
-        print(f"  CRITICAL ERROR: Missing baseline files '{BLAST_RESULTS}' or '{GENOME_FILE}'.")
-        return False
+def export_publication_table():
+    if not all_processed_labels:
+        return
+        
+    with open(TABLE_OUTPUT, "w") as f:
+        f.write("# In Silico Multi-Locus Transcriptomic Screen Summary\n\n")
+        header = f"| Gene Symbol | " + " | ".join(all_processed_labels) + " |\n"
+        divider = f"| :--- | " + " | ".join([":---"] * len(all_processed_labels)) + " |\n"
+        f.write(header)
+        f.write(divider)
+        
+        for gene in TARGET_MATRIX:
+            row_cells = [gene]
+            for col in all_processed_labels:
+                status = publication_matrix[gene].get(col, "None Detected")
+                if status != "None Detected" and status != "File Missing":
+                    row_cells.append(f"**+ve** ({status})")
+                else:
+                    row_cells.append(status)
+            f.write(f"| " + " | ".join(row_cells) + " |\n")
+            
+    print(f"\n[📊 TABLE EXPORT] Cross-comparison manuscript grid saved to: {TABLE_OUTPUT}")
 
-    columns = ["qseqid", "sseqid", "pident", "length", "mismatch", "gapopen", "qstart", "qend", "sstart", "send", "evalue", "bitscore"]
-    df = pd.read_csv(BLAST_RESULTS, sep="\t", names=columns)
+def run_phase_2_genomic_extraction():
+    wsl_blast = convert_win_to_wsl_path(BLAST_RESULTS)
+    wsl_genome = convert_win_to_wsl_path(GENOME_FILE)
     
-    # Filter by statistical stringency and clean strand boundaries
+    print(f"\n[PHASE 2] Parsing structural boundaries from alignment file: {wsl_blast}...")
+    if not os.path.exists(wsl_blast) or not os.path.exists(wsl_genome):
+        print(f"  ⚠️ PHASE 2 SKIPPED: Missing boundary extraction files at specified path layout.")
+        return False
+        
+    columns = ["qseqid", "sseqid", "pident", "length", "mismatch", "gapopen", "qstart", "qend", "sstart", "send", "evalue", "bitscore"]
+    df = pd.read_csv(wsl_blast, sep="\t", names=columns)
+    
     df = df[df["evalue"] < E_VALUE_THRESHOLD]
     df["start_clean"] = df[["sstart", "send"]].min(axis=1)
     df["end_clean"] = df[["sstart", "send"]].max(axis=1)
-
-    grouped = df.groupby(["qseqid", "sseqid"]).agg({"start_clean": "min", "end_clean": "max"}).reset_index()
     
+    grouped = df.groupby(["qseqid", "sseqid"]).agg({"start_clean": "min", "end_clean": "max"}).reset_index()
     regions = {}
     for idx, row in grouped.iterrows():
         chrom = row["sseqid"]
-        if chrom not in regions: regions[chrom] = []
+        if chrom not in regions:
+            regions[chrom] = []
         regions[chrom].append({"gene": row["qseqid"], "start": int(row["start_clean"]), "end": int(row["end_clean"])})
-
-    print(f"  Indexed {len(grouped)} structural loci. Slice-extracting bases from: {GENOME_FILE}...")
-    current_chrom, chrom_seq, extracted_count = None, [], 0
-
+        
+    print(f"  Indexed {len(grouped)} structural loci. Slice-extracting bases from: {wsl_genome}...")
+    extracted_count = 0
+    
     with open(OUTPUT_FASTA, "w") as out_fasta:
-        def process_chrom_block(chrom_id, seq_list):
-            nonlocal extracted_count
-            if not chrom_id or chrom_id not in regions: return
-            full_seq = "".join(seq_list)
-            for target in regions[chrom_id]:
-                sub_seq = full_seq[max(0, target["start"] - 1):min(len(full_seq), target["end"])]
-                out_fasta.write(f">{target['gene']}_{chrom_id}_{target['start']}-{target['end']}\n")
-                for i in range(0, len(sub_seq), 80):
-                    out_fasta.write(sub_seq[i:i+80] + "\n")
-                out_fasta.write("\n")
-                extracted_count += 1
-
-        with open(GENOME_FILE, "r") as f:
-            for line in f:
-                if line.startswith(">"):
-                    if current_chrom: process_chrom_block(current_chrom, chrom_seq)
-                    current_chrom = line.split()[0].replace(">", "")
-                    chrom_seq = []
-                else:
-                    chrom_seq.append(line.strip())
-            if current_chrom: process_chrom_block(current_chrom, chrom_seq)
-
+        for record in SeqIO.parse(wsl_genome, "fasta"):
+            chrom_id = record.id
+            if chrom_id in regions:
+                full_seq = str(record.seq)
+                for target in regions[chrom_id]:
+                    sub_seq = full_seq[max(0, target["start"] - 1):min(len(full_seq), target["end"])]
+                    out_fasta.write(f">{target['gene']}_{chrom_id}_{target['start']}-{target['end']}\n")
+                    for i in range(0, len(sub_seq), 80):
+                        out_fasta.write(sub_seq[i:i+80] + "\n")
+                    out_fasta.write("\n")
+                    extracted_count += 1
+                
     print(f"  Success! Exported {extracted_count} sequence blocks into: {OUTPUT_FASTA}")
+    return True
 
 if __name__ == "__main__":
     print("=" * 60)
     print("      GENOMIC AND TRANSCRIPTOMIC DATA PROCESSING PIPELINE")
     print("=" * 60)
-    p1_success = run_phase_1_transcript_screen()
-    if p1_success:
-        run_phase_2_genomic_extraction()
+    
+    # 1. Screen local primary subject reference archive
+    run_phase_1_transcript_screen(PRIMARY_CDNA, "R. ferrumequinum (Primary)")
+    
+    # 2. Iterate dynamically over custom target windows path configurations
+    for win_path in WINDOWS_CDNA_PATHS:
+        wsl_path = convert_win_to_wsl_path(win_path)
+        run_phase_1_transcript_screen(wsl_path, label=None)
+        
+    # 3. Output structural summary markdown presentation sheet
+    export_publication_table()
     print("\n" + "=" * 60)
+    
+    # 4. Trigger localized slicing execution profile
+    run_phase_2_genomic_extraction()
+    print("=" * 60)
