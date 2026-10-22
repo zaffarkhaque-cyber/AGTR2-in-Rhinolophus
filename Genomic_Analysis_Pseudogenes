@@ -1,0 +1,259 @@
+#!/usr/bin/env python3
+import os
+import sys
+
+# IMMEDIATE CONSOLE CHECK - This will force a print message the millisecond you hit enter
+print("\n[DIAGNOSTIC] Python has successfully opened and initiated Genomic_Scan_Pseudogene.txt!")
+
+import argparse
+import hashlib
+import json
+import math
+import shutil
+import subprocess
+import tempfile
+import zipfile
+from datetime import datetime, timezone
+from pathlib import Path
+
+import pandas as pd
+from scipy.stats import chisquare
+
+# ----------------------------------------------------------------------------
+# Fixed method parameters
+# ----------------------------------------------------------------------------
+BAIT_NAME = "Myotis_myotis_AGTR2_protein"
+BAIT = (
+    "MKGNFTPATINKNVTSSLDFGLGNISGNDSTFNCSHKPSDKHLDAIPVLYYIIFVIGFLVNTIVVTLFCCQK"
+    "GPKKVSSIYIFNLAVADLLLLATLPLWASYYSYRYDWLFGPVMCKVFGSFLTLNMFASIFFITCMSVDRYQS"
+    "VIYPFLSQRRNPWQASYIVPLVWCMACLSSLPTFYFRDVRTVEYLGVNACVMAFPPEKYAQWSAGIALMKN"
+    "ILGFIIPLIFIATCYFGIRKHLLKTNSYGKNRITRDQVLKMAAAVVLAFIICWLPFHVLTFLDALAWMGVIT"
+    "SCEVIAVIDLALPFAILLGFTNSCVNPFLYCFVGNRFQQKLRRVFRVPITWLQGKRESVSCRKSSSLREMETFVS"
+)
+BAIT_LEN = len(BAIT)
+
+TBLASTN_EVALUE = "10"          
+SCREEN_EVALUE = 1e-5           
+RETAIN_COV, RETAIN_PID = 60.0, 80.0
+PARTIAL_COV = 30.0
+SELF_VALID_PID, SELF_VALID_COV = 95.0, 60.0
+
+OUTFMT = "6 qseqid sseqid sframe pident length qstart qend sstart send evalue bitscore"
+OUTFMT_FIELDS = ["qseqid", "sseqid", "sframe", "pident", "length", "qstart", "qend", "sstart", "send", "evalue", "bitscore"]
+
+# ----------------------------------------------------------------------------
+# Validated File Map from your exact paths
+# ----------------------------------------------------------------------------
+DEFAULT_FILES = {
+    "Rhinolophus ferrumequinum":
+        "/mnt/c/Users/shazi/Downloads/Rhinolophus_ferrumequinum_ncbi_dataset.zip",
+    "Rhinolophus hipposideros":
+        "/mnt/c/Users/shazi/Downloads/Rhinolophus_hipposideros_ncbi_dataset.zip",
+    "Rhinolophus affinis":
+        "/mnt/c/Users/shazi/Downloads/Rhinolophus_affinis_ncbi_dataset.zip",
+    "Rhinolophus affinis (Group 9)":
+        "/mnt/c/Users/shazi/OneDrive/Desktop/BATCH GENOMES/Group9/Rhinolophus_affinis_ncbi_dataset.zip",
+    "Rhinolophus sinicus":
+        "/mnt/c/Users/shazi/Downloads/Rhinolophus_sinicus_ncbi_dataset.zip",
+    "Hipposideros armiger":
+        "/mnt/c/Users/shazi/Downloads/Hipposigeros_armiger_ncbi_dataset.zip",
+    "Hipposideros larvatus":
+        "/mnt/c/Users/shazi/Downloads/Hipposideros_larvatus_ncbi_dataset (1).zip",
+    "Myotis myotis":
+        "/mnt/c/Users/shazi/Downloads/Myotis_myotis_ncbi_dataset.zip",
+    "Calypte anna":
+        "/mnt/c/Users/shazi/Downloads/Calypte_anna_ncbi_dataset (2).zip",
+    "Apus apus":
+        "/mnt/c/Users/shazi/Downloads/Apus_apus_ncbi_dataset.zip",
+    "Selasphorus platycercus":
+        "/mnt/c/Users/shazi/Downloads/Selasphorus_platycercus_ncbi_dataset.zip",
+}
+DEFAULT_OUT = "/mnt/c/Users/shazi/OneDrive/AGTR2"
+FASTA_SUFFIX = (".fna", ".fa", ".fasta")
+FRAME_ORDER = ["+1", "+2", "+3", "-1", "-2", "-3"]
+
+class Log:
+    def __init__(self, path):
+        self.fh = open(path, "w", encoding="utf-8")
+    def __call__(self, msg=""):
+        print(msg)
+        self.fh.write(str(msg) + "\n")
+        self.fh.flush()
+    def close(self):
+        self.fh.close()
+
+def check_blast(log):
+    missing = [t for t in ("makeblastdb", "tblastn") if shutil.which(t) is None]
+    if missing:
+        log(f"[FATAL] BLAST+ utilities missing from PATH: {', '.join(missing)}")
+        sys.exit(2)
+
+def pick_genomic_layer(zf, zf_names, log):
+    candidates = [n for n in zf_names
+                  if n.lower().endswith(FASTA_SUFFIX)
+                  and "dataset_report" not in n.lower()
+                  and "readme" not in n.lower()
+                  and "cds" not in n.lower()
+                  and "rna" not in n.lower()]
+    if not candidates:
+        return None
+    sizes = {c: zf.getinfo(c).file_size for c in candidates}
+    chosen = max(sizes, key=sizes.get)
+    log(f"    Targeting Whole Genome Component: {chosen} ({sizes[chosen]/(1024**2):.1f} MB)")
+    return chosen
+
+def run_analysis():
+    out_dir = Path(DEFAULT_OUT)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    blast_raw_dir = out_dir / "blast_raw"
+    blast_raw_dir.mkdir(exist_ok=True)
+
+    log = Log(out_dir / "screen_log.txt")
+    log(f"=== AGTR2 Whole-Genome Analysis Initialized: {datetime.now(timezone.utc).isoformat()} ===")
+    check_blast(log)
+
+    master_records = []
+    found_any_files = False
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmp_path = Path(tmpdir)
+        bait_fasta = tmp_path / "bait.fasta"
+        with open(bait_fasta, "w") as f:
+            f.write(f">{BAIT_NAME}\n{BAIT}\n")
+
+        for species, zip_path in DEFAULT_FILES.items():
+            if not os.path.exists(zip_path):
+                continue
+
+            found_any_files = True
+            log(f"\n[*] Scanning Entire Genome Assembly for: {species}")
+            
+            with zipfile.ZipFile(zip_path, 'r') as zf:
+                genomic_file = pick_genomic_layer(zf, zf.namelist(), log)
+                if not genomic_file:
+                    log(f"    [ERROR] No valid genomic assembly found inside zip.")
+                    continue
+
+                extracted_fa = tmp_path / f"{species.replace(' ', '_')}.fasta"
+                with zf.open(genomic_file) as src, open(extracted_fa, "wb") as dst:
+                    shutil.copyfileobj(src, dst)
+
+                db_prefix = tmp_path / f"{species.replace(' ', '_')}_db"
+                log("    Building localized whole-genome BLAST database...")
+                subprocess.run(
+                    ["makeblastdb", "-in", str(extracted_fa), "-dbtype", "nucl", "-out", str(db_prefix)],
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True
+                )
+
+                raw_tsv_out = blast_raw_dir / f"{species.replace(' ', '_')}.tsv"
+                log("    Running whole-genome tblastn search (Scanning all 6 frames)...")
+                subprocess.run([
+                    "tblastn", "-query", str(bait_fasta), "-db", str(db_prefix),
+                    "-evalue", TBLASTN_EVALUE, "-seg", "no", "-outfmt", OUTFMT, "-out", str(raw_tsv_out)
+                ], check=True)
+
+                for f in tmp_path.glob(f"{species.replace(' ', '_')}_db.*"):
+                    f.unlink()
+                extracted_fa.unlink()
+
+                if os.path.getsize(raw_tsv_out) > 0:
+                    df = pd.read_csv(raw_tsv_out, sep="\t", names=OUTFMT_FIELDS)
+                else:
+                    df = pd.DataFrame(columns=OUTFMT_FIELDS)
+
+                df['coverage'] = (df['length'] / BAIT_LEN) * 100.0
+                df_screen = df[df['evalue'] <= SCREEN_EVALUE]
+
+                frame_counts = {f: 0 for f in FRAME_ORDER}
+                for _, row in df.iterrows():
+                    fmt_frame = f"{int(row['sframe']):+d}"
+                    if fmt_frame in frame_counts:
+                        frame_counts[fmt_frame] += 1
+
+                counts_list = [frame_counts[f] for f in FRAME_ORDER]
+                if sum(counts_list) > 0:
+                    stat, p_val = chisquare(counts_list)
+                    p_val_fmt = f"{p_val:.5e}" if not math.isnan(p_val) else "N/A"
+                else:
+                    p_val_fmt = "N/A"
+
+                if df_screen.empty:
+                    classification = "NO_HIT"
+                    best_pid, best_cov, best_eval = 0.0, 0.0, "N/A"
+                else:
+                    best_hit = df_screen.sort_values(by="bitscore", ascending=False).iloc[0]
+                    best_pid = float(best_hit['pident'])
+                    best_cov = float(best_hit['coverage'])
+                    best_eval = f"{best_hit['evalue']:.5e}"
+                    log(f"    -> High scoring segment mapped to scaffold: {best_hit['sseqid']}")
+                    
+                    if best_cov >= RETAIN_COV and best_pid >= RETAIN_PID:
+                        classification = "RETAINED_CANDIDATE"
+                    elif best_cov >= PARTIAL_COV:
+                        classification = "PARTIAL_FRAGMENT"
+                    else:
+                        classification = "SHORT_REMNANT"
+
+                log(f"    Classification Result: {classification} (Best Identity: {best_pid}%, Cov: {best_cov:.1f}%)")
+
+                rec = {
+                    "Species": species,
+                    "Screen_Classification": classification,
+                    "Best_Pident": best_pid,
+                    "Best_Coverage": best_cov,
+                    "Best_Evalue": best_eval,
+                    "Chi2_Frame_p_value": p_val_fmt
+                }
+                for f in FRAME_ORDER:
+                    rec[f"Hits_Frame_{f}"] = frame_counts[f]
+                master_records.append(rec)
+
+    if not found_any_files:
+        print("[CRITICAL] Script could not find any zip files at the specified paths. Check your paths inside the file.")
+        return
+
+    master_df = pd.DataFrame(master_records)
+    master_df.to_csv(out_dir / "Detailed_Frame_Myotis_Only.csv", index=False)
+    master_df.to_excel(out_dir / "AGTR2_Landscape_PerFrame_Myotis_Only.xlsx", index=False)
+    log(f"\n[+] Processing complete. Matrices saved directly to output folder: {out_dir}")
+    log.close()
+
+# Force execution no matter how python interprets the file environment
+if __name__ == "__main__":
+    run_analysis()
+
+
+TO EXTRACT RAW DATA:
+#!/usr/bin/env python3
+import os
+import pandas as pd
+
+# Path to the matrix your genomic scan script just generated
+matrix_path = "/mnt/c/Users/shazi/OneDrive/AGTR2/Detailed_Frame_Myotis_Only.csv"
+
+print("==========================================================================================")
+print("                    RAW DATA RESULTS: AGTR2 WHOLE-GENOME MATRIX                           ")
+print("==========================================================================================\n")
+
+if not os.path.exists(matrix_path):
+    print(f"[ERROR] Could not find the raw output data file at: {matrix_path}")
+    print("Please make sure your Genomic_Scan_Pseudogene.txt script finished completely.")
+else:
+    # Read and print the entire matrix dataframe nicely formatted
+    df = pd.read_csv(matrix_path)
+    
+    # Re-order columns for clean viewing
+    cols_to_show = [
+        'Species', 'Screen_Classification', 'Best_Pident', 
+        'Best_Coverage', 'Best_Evalue', 'Chi2_Frame_p_value'
+    ]
+    
+    print("--- CORE ALIGNMENT METRICS ---")
+    print(df[cols_to_show].to_string(index=False))
+    
+    print("\n------------------------------------------------------------------------------------------")
+    print("--- RAW SIX-FRAME HIT COUNTS (PERMISSIVE SCAN) ---")
+    frame_cols = ['Species', 'Hits_Frame_+1', 'Hits_Frame_+2', 'Hits_Frame_+3', 'Hits_Frame_-1', 'Hits_Frame_-2', 'Hits_Frame_-3']
+    print(df[frame_cols].to_string(index=False))
+
+print("\n==========================================================================================")
