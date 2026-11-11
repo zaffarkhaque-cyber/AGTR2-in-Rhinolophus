@@ -1,0 +1,112 @@
+python
+import os
+import subprocess
+import sys
+from Bio import SeqIO
+
+
+def clean_cds(input_fasta, cleaned_fasta):
+    """Validates CDS length, checks for internal stops, and strips terminal stop codons."""
+    stop_codons = {"TAA", "TAG", "TGA"}
+    cleaned_records = []
+
+    for record in SeqIO.parse(input_fasta, "fasta"):
+        seq_str = str(record.seq).upper().replace("-", "")
+
+        # Strip terminal stop codon if present
+        if seq_str[-3:] in stop_codons:
+            seq_str = seq_str[:-3]
+
+        # Check divisibility by 3
+        if len(seq_str) % 3 != 0:
+            raise ValueError(
+                f"ERROR: {record.id} in {input_fasta} length ({len(seq_str)}) is not divisible by 3."
+            )
+
+        # Check for internal stop codons
+        for i in range(0, len(seq_str), 3):
+            codon = seq_str[i : i + 3]
+            if codon in stop_codons:
+                raise ValueError(
+                    f"ERROR: Internal stop codon ({codon}) found in {record.id} at position {i}."
+                )
+
+        record.seq = record.seq.__class__(seq_str)
+        cleaned_records.append(record)
+
+    SeqIO.write(cleaned_records, cleaned_fasta, "fasta")
+    print(f"[+] Cleaned CDS saved to {cleaned_fasta}")
+
+
+def run_macse_alignment(cleaned_fasta, aligned_nt_fasta, aligned_aa_fasta):
+    """Aligns sequences by codon using MACSE v2."""
+    cmd = [
+        "macse",
+        "-prog",
+        "alignSequences",
+        "-seq",
+        cleaned_fasta,
+        "-out_NT",
+        aligned_nt_fasta,
+        "-out_AA",
+        aligned_aa_fasta,
+    ]
+    print(f"[*] Running MACSE codon alignment on {cleaned_fasta}...")
+    subprocess.run(cmd, check=True)
+
+
+def sanitize_macse_output(aligned_nt_fasta, final_fasta):
+    """Replaces MACSE frameshift '!' symbols with '-' so HyPhy can parse the alignment."""
+    records = []
+    for record in SeqIO.parse(aligned_nt_fasta, "fasta"):
+        clean_seq = str(record.seq).replace("!", "-")
+        record.seq = record.seq.__class__(clean_seq)
+        records.append(record)
+    SeqIO.write(records, final_fasta, "fasta")
+    print(f"[+] Sanitized alignment saved to {final_fasta}")
+
+
+def run_hyphy_absrel(final_fasta, tree_file, output_json):
+    """Runs HyPhy aBSREL testing for dN/dS > 1 on Foreground branches."""
+    cmd = [
+        "hyphy",
+        "absrel",
+        "--alignment",
+        final_fasta,
+        "--tree",
+        tree_file,
+        "--branches",
+        "Foreground",
+        "--output",
+        output_json,
+    ]
+    print(f"[*] Running HyPhy aBSREL on {final_fasta}...")
+    subprocess.run(cmd, check=True)
+    print(f"[+] Done! Results saved to {output_json}\n")
+
+
+if __name__ == "__main__":
+    # Define your genes and files here
+    genes = ["MAS1", "ACE2"]
+    tree_file = "species_tree.nwk"
+
+    if not os.path.exists(tree_file):
+        sys.exit(f"Missing {tree_file}. Please create your Newick tree first.")
+
+    for gene in genes:
+        raw_fasta = f"{gene}_raw_cds.fasta"
+        if not os.path.exists(raw_fasta):
+            print(f"Skipping {gene}: {raw_fasta} not found.")
+            continue
+
+        print(f"=== Processing {gene} ===")
+        cleaned = f"{gene}_cleaned.fasta"
+        aligned_nt = f"{gene}_aligned_NT.fasta"
+        aligned_aa = f"{gene}_aligned_AA.fasta"
+        final_aln = f"{gene}_final_codon.fasta"
+        json_out = f"{gene}_absrel_results.json"
+
+        clean_cds(raw_fasta, cleaned)
+        run_macse_alignment(cleaned, aligned_nt, aligned_aa)
+        sanitize_macse_output(aligned_nt, final_aln)
+        run_hyphy_absrel(final_aln, tree_file, json_out)
