@@ -2,29 +2,30 @@ python
 #!/usr/bin/env python3
 """Convergent Non-AGTR2 Molecular Adaptation Pipeline.
 
-Reconstructs full-length orthologous proteins from raw genomic assemblies
-using
-TBLASTN locus clustering and splice-aware Exonerate alignment, builds
-multi-species alignments with MUSCLE v5, and identifies convergent amino acid
-substitutions shared across AGTR2-deficient lineages while absent in
-AGTR2-intact controls.
+Supports raw Notepad protein lists (with or without '>' FASTA headers) and
+either NCBI Datasets .zip archives or extracted .fna genome assemblies.
+Reconstructs spliced orthologs via TBLASTN locus clustering + Exonerate,
+aligns sequences with MUSCLE v5, and isolates convergent substitutions shared
+across AGTR2-deficient lineages.
 """
 
 import csv
+from operator import itemgetter
 import os
+import re
 import subprocess
+import zipfile
 from Bio import SeqIO
 from Bio.Seq import Seq
 from Bio.SeqRecord import SeqRecord
 
 # ==============================================================================
-# CONFIGURATION: Update paths and species groupings for your local environment
+# CONFIGURATION
 # ==============================================================================
 WORK_DIR = "./results"
-QUERY_FASTA = "./data/human_queries.fasta"
-GENOME_DIR = "./data/genomes"  # Folder containing <Species_Name>.fna files
+QUERY_FILE = "./data/AGTR1_RASS_Analysis_Protein_Sequences.txt"
+GENOME_INPUT_DIR = "./data/genomes"  # Accepts .zip archives or .fna files
 
-# Taxonomic partitions (filenames must match <Species_Name>.fna)
 RHINOLOPHUS_NON_AGTR2 = {
     "Rhinolophus_sinicus",
     "Rhinolophus_ferrumequinum",
@@ -47,7 +48,6 @@ AGTR2_INTACT_CONTROLS = {
     "Trichoglossus_moluccanus",
 }
 
-# Alignment and filtering parameters
 TBLASTN_EVALUE = "1e-3"
 CLUSTER_WINDOW_BP = 500000
 FLANK_BP = 25000
@@ -55,8 +55,79 @@ MIN_RHINOLOPHUS_HITS = 2
 MAX_CONTROL_LEAKAGE = 0
 
 
+def parse_flexible_sequences(seq_path):
+  """Parses plain Notepad protein lists (with or without '>' FASTA headers)."""
+  records = []
+  current_header = None
+  current_seq = []
+
+  with open(seq_path, "r", encoding="utf-8", errors="ignore") as f:
+    for line in f:
+      line = line.strip()
+      if not line:
+        continue
+      if re.fullmatch(r"[ACDEFGHIKLMNPQRSTVWY]+", line):
+        current_seq.append(line)
+      else:
+        if current_header and current_seq:
+          clean_id = re.sub(r"[^A-Za-z0-9_=-]", "_", current_header)[:35]
+          records.append(
+              SeqRecord(
+                  Seq("".join(current_seq)),
+                  id=clean_id,
+                  description=current_header,
+              )
+          )
+        current_header = line.lstrip(">").strip()
+        current_seq = []
+
+  if current_header and current_seq:
+    clean_id = re.sub(r"[^A-Za-z0-9_=-]", "_", current_header)[:35]
+    records.append(
+        SeqRecord(
+            Seq("".join(current_seq)), id=clean_id, description=current_header
+        )
+    )
+  return records
+
+
+def prepare_genomes(input_dir, extract_dir, allowed_species):
+  """Maps .fna files directly or extracts genomic .fna files from NCBI .zip archives."""
+  os.makedirs(extract_dir, exist_ok=True)
+  genome_map = {}
+
+  for fname in os.listdir(input_dir):
+    full_path = os.path.join(input_dir, fname)
+    matched_sp = next(
+        (sp for sp in allowed_species if sp.lower() in fname.lower()), None
+    )
+    if not matched_sp:
+      continue
+
+    if fname.endswith(".fna"):
+      genome_map[matched_sp] = full_path
+    elif fname.endswith(".zip"):
+      out_fna = os.path.join(extract_dir, f"{matched_sp}.fna")
+      if not os.path.exists(out_fna) or os.path.getsize(out_fna) == 0:
+        with zipfile.ZipFile(full_path, "r") as z:
+          fna_members = [m for m in z.namelist() if m.endswith(".fna")]
+          if fna_members:
+            with z.open(next(iter(fna_members))) as src, open(
+                out_fna, "wb"
+            ) as dst:
+              while True:
+                chunk = src.read(1024 * 1024 * 10)
+                if not chunk:
+                  break
+                dst.write(chunk)
+      if os.path.exists(out_fna):
+        genome_map[matched_sp] = out_fna
+
+  return genome_map
+
+
 def locate_and_extract_locus(query_faa, genome_fna, out_locus_fna):
-  """Finds the highest-scoring 500 kb genomic cluster via TBLASTN and extracts it."""
+  """Finds the top 500 kb genomic cluster via TBLASTN and extracts it with flanks."""
   cmd = [
       "tblastn",
       "-query",
@@ -81,7 +152,7 @@ def locate_and_extract_locus(query_faa, genome_fna, out_locus_fna):
     s1, s2 = int(s1_str), int(s2_str)
     hits.append((scaff, min(s1, s2), max(s1, s2), float(score_str)))
 
-  hits.sort(key=lambda item: (item[0], item[1]))
+  hits.sort(key=itemgetter(0, 1))
 
   clusters = []
   for scaff, h_start, h_end, h_score in hits:
@@ -98,7 +169,7 @@ def locate_and_extract_locus(query_faa, genome_fna, out_locus_fna):
           {"scaff": scaff, "start": h_start, "end": h_end, "score": h_score}
       )
 
-  best_cluster = max(clusters, key=lambda c: c["score"])
+  best_cluster = max(clusters, key=itemgetter("score"))
   win_start = max(0, best_cluster["start"] - FLANK_BP)
   win_end = best_cluster["end"] + FLANK_BP
 
@@ -136,9 +207,7 @@ def reconstruct_protein_exonerate(query_faa, locus_fna):
   cds_lines = [
       l.strip()
       for l in lines
-      if l.strip()
-      and not l.startswith(">")
-      and set(l.strip().upper()).issubset(set("ACGTN"))
+      if l.strip() and re.fullmatch(r"[ACGTNacgtn]+", l.strip())
   ]
   if not cds_lines:
     return ""
@@ -149,7 +218,7 @@ def reconstruct_protein_exonerate(query_faa, locus_fna):
 
 
 def scan_convergent_mutations(msa_fasta, gene_name, csv_writer):
-  """Parses a MUSCLE MSA and writes convergent non-AGTR2 substitutions to CSV."""
+  """Scans a MUSCLE MSA and writes convergent non-AGTR2 substitutions to CSV."""
   records = list(SeqIO.parse(msa_fasta, "fasta"))
   ref = next((r for r in records if r.id == "REFERENCE_HUMAN_QUERY"), None)
   if not ref:
@@ -165,11 +234,9 @@ def scan_convergent_mutations(msa_fasta, gene_name, csv_writer):
       continue
     human_pos += 1
 
-    # Require exact frame agreement in the human genomic reconstruction control
     if hs_seq and hs_seq[col] != h_aa:
       continue
 
-    # Avian non-AGTR2 representative must carry a non-human substitution
     if AVIAN_NON_AGTR2 not in others or others[AVIAN_NON_AGTR2][col] in (
         "-",
         h_aa,
@@ -177,7 +244,6 @@ def scan_convergent_mutations(msa_fasta, gene_name, csv_writer):
       continue
     target_aa = others[AVIAN_NON_AGTR2][col]
 
-    # Check leakage into AGTR2-intact control species
     ctrl_matches = [
         c
         for c in AGTR2_INTACT_CONTROLS
@@ -186,7 +252,6 @@ def scan_convergent_mutations(msa_fasta, gene_name, csv_writer):
     if len(ctrl_matches) > MAX_CONTROL_LEAKAGE:
       continue
 
-    # Check Rhinolophus and Hipposideros bat lineages
     rhino_hits = sorted([
         b
         for b in RHINOLOPHUS_NON_AGTR2
@@ -220,6 +285,7 @@ def scan_convergent_mutations(msa_fasta, gene_name, csv_writer):
 
 def main():
   msa_dir = os.path.join(WORK_DIR, "multispecies_MSAs")
+  extract_dir = os.path.join(WORK_DIR, "extracted_genomes")
   os.makedirs(msa_dir, exist_ok=True)
 
   temp_q = os.path.join(WORK_DIR, "temp_query.faa")
@@ -232,13 +298,9 @@ def main():
       | CANDIDATE_NON_AGTR2
       | AGTR2_INTACT_CONTROLS
   )
-  genomes = {
-      f.replace(".fna", ""): os.path.join(GENOME_DIR, f)
-      for f in os.listdir(GENOME_DIR)
-      if f.endswith(".fna") and f.replace(".fna", "") in allowed_species
-  }
 
-  queries = list(SeqIO.parse(QUERY_FASTA, "fasta"))
+  queries = parse_flexible_sequences(QUERY_FILE)
+  genomes = prepare_genomes(GENOME_INPUT_DIR, extract_dir, allowed_species)
   print(f"Loaded {len(queries)} query proteins and {len(genomes)} genomes.")
 
   with open(out_csv, "w", newline="") as f:
@@ -280,20 +342,3 @@ def main():
 
       unaligned_faa = os.path.join(msa_dir, f"{query.id}_unaligned.faa")
       aligned_faa = os.path.join(msa_dir, f"{query.id}_MSA.fasta")
-      SeqIO.write(reconstructed, unaligned_faa, "fasta")
-      subprocess.run(
-          ["muscle", "-align", unaligned_faa, "-output", aligned_faa],
-          check=True,
-      )
-
-      scan_convergent_mutations(aligned_faa, query.id, writer)
-
-  for tmp in (temp_q, temp_locus):
-    if os.path.exists(tmp):
-      os.remove(tmp)
-
-  print(f"\nPipeline complete. Results saved to: {out_csv}")
-
-
-if __name__ == "__main__":
-  main()
