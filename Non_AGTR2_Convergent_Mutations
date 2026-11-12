@@ -1,0 +1,299 @@
+python
+#!/usr/bin/env python3
+"""Convergent Non-AGTR2 Molecular Adaptation Pipeline.
+
+Reconstructs full-length orthologous proteins from raw genomic assemblies
+using
+TBLASTN locus clustering and splice-aware Exonerate alignment, builds
+multi-species alignments with MUSCLE v5, and identifies convergent amino acid
+substitutions shared across AGTR2-deficient lineages while absent in
+AGTR2-intact controls.
+"""
+
+import csv
+import os
+import subprocess
+from Bio import SeqIO
+from Bio.Seq import Seq
+from Bio.SeqRecord import SeqRecord
+
+# ==============================================================================
+# CONFIGURATION: Update paths and species groupings for your local environment
+# ==============================================================================
+WORK_DIR = "./results"
+QUERY_FASTA = "./data/human_queries.fasta"
+GENOME_DIR = "./data/genomes"  # Folder containing <Species_Name>.fna files
+
+# Taxonomic partitions (filenames must match <Species_Name>.fna)
+RHINOLOPHUS_NON_AGTR2 = {
+    "Rhinolophus_sinicus",
+    "Rhinolophus_ferrumequinum",
+    "Rhinolophus_hipposideros",
+}
+
+AVIAN_NON_AGTR2 = "Calypte_anna"
+
+CANDIDATE_NON_AGTR2 = {
+    "Hipposideros_armiger",
+    "Hipposideros_larvatus",
+}
+
+AGTR2_INTACT_CONTROLS = {
+    "Homo_sapiens",
+    "Myotis_myotis",
+    "Rousettus_aegyptiacus",
+    "Acinonyx_jubatus",
+    "Apus_apus",
+    "Trichoglossus_moluccanus",
+}
+
+# Alignment and filtering parameters
+TBLASTN_EVALUE = "1e-3"
+CLUSTER_WINDOW_BP = 500000
+FLANK_BP = 25000
+MIN_RHINOLOPHUS_HITS = 2
+MAX_CONTROL_LEAKAGE = 0
+
+
+def locate_and_extract_locus(query_faa, genome_fna, out_locus_fna):
+  """Finds the highest-scoring 500 kb genomic cluster via TBLASTN and extracts it."""
+  cmd = [
+      "tblastn",
+      "-query",
+      query_faa,
+      "-subject",
+      genome_fna,
+      "-evalue",
+      TBLASTN_EVALUE,
+      "-seg",
+      "no",
+      "-outfmt",
+      "6 sseqid sstart send bitscore",
+  ]
+  res = subprocess.run(cmd, capture_output=True, text=True, check=True)
+  lines = res.stdout.strip().splitlines()
+  if not lines:
+    return None
+
+  hits = []
+  for line in lines:
+    scaff, s1_str, s2_str, score_str = line.split("\t")
+    s1, s2 = int(s1_str), int(s2_str)
+    hits.append((scaff, min(s1, s2), max(s1, s2), float(score_str)))
+
+  hits.sort(key=lambda item: (item[0], item[1]))
+
+  clusters = []
+  for scaff, h_start, h_end, h_score in hits:
+    placed = False
+    for c in clusters:
+      if scaff == c["scaff"] and (h_start - c["end"]) <= CLUSTER_WINDOW_BP:
+        c["start"] = min(c["start"], h_start)
+        c["end"] = max(c["end"], h_end)
+        c["score"] += h_score
+        placed = True
+        break
+    if not placed:
+      clusters.append(
+          {"scaff": scaff, "start": h_start, "end": h_end, "score": h_score}
+      )
+
+  best_cluster = max(clusters, key=lambda c: c["score"])
+  win_start = max(0, best_cluster["start"] - FLANK_BP)
+  win_end = best_cluster["end"] + FLANK_BP
+
+  for rec in SeqIO.parse(genome_fna, "fasta"):
+    if rec.id == best_cluster["scaff"]:
+      sub_seq = rec.seq[win_start:win_end]
+      SeqIO.write(
+          SeqRecord(sub_seq, id=rec.id, description=""), out_locus_fna, "fasta"
+      )
+      return best_cluster["scaff"]
+
+  return None
+
+
+def reconstruct_protein_exonerate(query_faa, locus_fna):
+  """Reconstructs spliced coding sequence using Exonerate protein2genome."""
+  cmd = [
+      "exonerate",
+      "--model",
+      "protein2genome",
+      "--bestn",
+      "1",
+      "--showalignment",
+      "no",
+      "--showvulgar",
+      "no",
+      "--ryo",
+      ">%ti\\n%tcs\\n",
+      query_faa,
+      locus_fna,
+  ]
+  res = subprocess.run(cmd, capture_output=True, text=True, check=True)
+  lines = res.stdout.strip().splitlines()
+
+  cds_lines = [
+      l.strip()
+      for l in lines
+      if l.strip()
+      and not l.startswith(">")
+      and set(l.strip().upper()).issubset(set("ACGTN"))
+  ]
+  if not cds_lines:
+    return ""
+
+  raw_dna = "".join(cds_lines)
+  trim_len = len(raw_dna) - (len(raw_dna) % 3)
+  return str(Seq(raw_dna[:trim_len]).translate(to_stop=True))
+
+
+def scan_convergent_mutations(msa_fasta, gene_name, csv_writer):
+  """Parses a MUSCLE MSA and writes convergent non-AGTR2 substitutions to CSV."""
+  records = list(SeqIO.parse(msa_fasta, "fasta"))
+  ref = next((r for r in records if r.id == "REFERENCE_HUMAN_QUERY"), None)
+  if not ref:
+    return
+
+  others = {r.id: r.seq for r in records if r.id != "REFERENCE_HUMAN_QUERY"}
+  hs_seq = others.get("Homo_sapiens")
+
+  human_pos = 0
+  for col in range(len(ref.seq)):
+    h_aa = ref.seq[col]
+    if h_aa == "-":
+      continue
+    human_pos += 1
+
+    # Require exact frame agreement in the human genomic reconstruction control
+    if hs_seq and hs_seq[col] != h_aa:
+      continue
+
+    # Avian non-AGTR2 representative must carry a non-human substitution
+    if AVIAN_NON_AGTR2 not in others or others[AVIAN_NON_AGTR2][col] in (
+        "-",
+        h_aa,
+    ):
+      continue
+    target_aa = others[AVIAN_NON_AGTR2][col]
+
+    # Check leakage into AGTR2-intact control species
+    ctrl_matches = [
+        c
+        for c in AGTR2_INTACT_CONTROLS
+        if c in others and others[c][col] == target_aa
+    ]
+    if len(ctrl_matches) > MAX_CONTROL_LEAKAGE:
+      continue
+
+    # Check Rhinolophus and Hipposideros bat lineages
+    rhino_hits = sorted([
+        b
+        for b in RHINOLOPHUS_NON_AGTR2
+        if b in others and others[b][col] == target_aa
+    ])
+    hippo_hits = sorted([
+        b
+        for b in CANDIDATE_NON_AGTR2
+        if b in others and others[b][col] == target_aa
+    ])
+
+    if len(rhino_hits) >= MIN_RHINOLOPHUS_HITS:
+      all_carriers = [AVIAN_NON_AGTR2] + rhino_hits + hippo_hits
+      ctrl_summary = " | ".join(
+          f"{c}:{others[c][col]}"
+          for c in sorted(AGTR2_INTACT_CONTROLS)
+          if c in others and others[c][col] != "-"
+      )
+      csv_writer.writerow([
+          gene_name,
+          human_pos,
+          h_aa,
+          target_aa,
+          f"{len(rhino_hits)} of {len(RHINOLOPHUS_NON_AGTR2)}",
+          "YES",
+          f"{len(hippo_hits)} of {len(CANDIDATE_NON_AGTR2)}",
+          " | ".join(all_carriers),
+          ctrl_summary,
+      ])
+
+
+def main():
+  msa_dir = os.path.join(WORK_DIR, "multispecies_MSAs")
+  os.makedirs(msa_dir, exist_ok=True)
+
+  temp_q = os.path.join(WORK_DIR, "temp_query.faa")
+  temp_locus = os.path.join(WORK_DIR, "temp_locus.fna")
+  out_csv = os.path.join(WORK_DIR, "Convergent_Non_AGTR2_Adaptations.csv")
+
+  allowed_species = (
+      RHINOLOPHUS_NON_AGTR2
+      | {AVIAN_NON_AGTR2}
+      | CANDIDATE_NON_AGTR2
+      | AGTR2_INTACT_CONTROLS
+  )
+  genomes = {
+      f.replace(".fna", ""): os.path.join(GENOME_DIR, f)
+      for f in os.listdir(GENOME_DIR)
+      if f.endswith(".fna") and f.replace(".fna", "") in allowed_species
+  }
+
+  queries = list(SeqIO.parse(QUERY_FASTA, "fasta"))
+  print(f"Loaded {len(queries)} query proteins and {len(genomes)} genomes.")
+
+  with open(out_csv, "w", newline="") as f:
+    writer = csv.writer(f)
+    writer.writerow([
+        "Gene",
+        "Human_Pos",
+        "Human_AA",
+        "Shared_Non_AGTR2_AA",
+        "Rhinolophus_Count",
+        "Hummingbird_Match",
+        "Hipposideros_Count",
+        "Carriers",
+        "Control_Species_AA",
+    ])
+
+    for query in queries:
+      print(f"\nProcessing {query.id}...")
+      SeqIO.write(query, temp_q, "fasta")
+      reconstructed = [
+          SeqRecord(query.seq, id="REFERENCE_HUMAN_QUERY", description="")
+      ]
+
+      for sp_name, fna_path in sorted(genomes.items()):
+        scaff = locate_and_extract_locus(temp_q, fna_path, temp_locus)
+        if not scaff:
+          continue
+        prot_seq = reconstruct_protein_exonerate(temp_q, temp_locus)
+        if len(prot_seq) > 20:
+          reconstructed.append(
+              SeqRecord(Seq(prot_seq), id=sp_name, description="")
+          )
+          print(
+              f"  [{sp_name}] {len(prot_seq)}/{len(query.seq)} aa ({scaff})"
+          )
+
+      if len(reconstructed) < 3:
+        continue
+
+      unaligned_faa = os.path.join(msa_dir, f"{query.id}_unaligned.faa")
+      aligned_faa = os.path.join(msa_dir, f"{query.id}_MSA.fasta")
+      SeqIO.write(reconstructed, unaligned_faa, "fasta")
+      subprocess.run(
+          ["muscle", "-align", unaligned_faa, "-output", aligned_faa],
+          check=True,
+      )
+
+      scan_convergent_mutations(aligned_faa, query.id, writer)
+
+  for tmp in (temp_q, temp_locus):
+    if os.path.exists(tmp):
+      os.remove(tmp)
+
+  print(f"\nPipeline complete. Results saved to: {out_csv}")
+
+
+if __name__ == "__main__":
+  main()
